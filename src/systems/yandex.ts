@@ -162,7 +162,8 @@ class YandexBridge {
   /** Resolves true only if the player watched the video to the end. */
   showRewarded(): Promise<boolean> {
     if (!this.sdk) {
-      if (import.meta.env.DEV) return new Promise((r) => setTimeout(() => r(true), 400));
+      // Local / GitHub Pages: no Yandex SDK, still grant the optional reward.
+      if (!window.YaGames) return new Promise((r) => setTimeout(() => r(true), 400));
       return Promise.resolve(false);
     }
     if (this.adShowing) return Promise.resolve(false);

@@ -106,7 +106,7 @@ export class ResultScene extends Phaser.Scene {
     this.applyReward(res.inv, res.epicsGained, res.epicsOpened, true);
     this.time.delayedCall(160, () => this.playCascade(res.events, res.inv));
 
-    const zone = this.add.zone(0, SLOT_Y - 40, 640, 330).setInteractive();
+    const zone = this.add.zone(0, SLOT_Y - 40, 640, 260).setInteractive();
     zone.on('pointerdown', () => this.skipCascade());
     r.add(zone);
 
@@ -223,7 +223,7 @@ export class ResultScene extends Phaser.Scene {
     this.shown = [...this.finalInv] as Inventory;
     if (this.epicOpens > 0) this.shown[3] += this.epicOpens * 5;
     for (let t = 0; t < 4; t++) {
-      this.counts[t].setText(String(this.shown[t]));
+      this.counts[t].setText(String(Math.max(0, this.shown[t])));
       this.tweens.killTweensOf(this.slots[t]);
       this.slots[t].setScale(SLOT_SCALE);
     }
@@ -253,14 +253,16 @@ export class ResultScene extends Phaser.Scene {
   }
 
   private bump(t: number) {
-    this.counts[t].setText(String(this.shown[t]));
+    this.counts[t].setText(String(Math.max(0, this.shown[t])));
     this.tweens.add({ targets: this.slots[t], scale: { from: SLOT_SCALE * 1.2, to: SLOT_SCALE }, duration: 160 });
   }
 
   private fuseFx(from: 0 | 1 | 2) {
     const to = from + 1;
-    this.shown[from] -= 5;
-    this.counts[from].setText(String(this.shown[from]));
+    this.shown[from] = Math.max(0, this.shown[from] - 5);
+    this.shown[to] += 1;
+    this.bump(from);
+    this.bump(to);
     for (let k = 0; k < 5; k++) {
       const m = this.add
         .image(360 + SLOT_X[from] + (k - 2) * 14, 640 + SLOT_Y - 15 - Math.abs(k - 2) * 10, `tier${from}`)
@@ -277,8 +279,6 @@ export class ResultScene extends Phaser.Scene {
       });
     }
     this.time.delayedCall(160, () => {
-      this.shown[to]++;
-      this.bump(to);
       burst(this, 360 + SLOT_X[to], 640 + SLOT_Y - 15, 'spark_white', 10, { speed: 200, depth: 6 });
       Sound.fuse(to);
     });
@@ -399,7 +399,8 @@ export class ResultScene extends Phaser.Scene {
   }
 
   private async doubleReward(btn: Button) {
-    if (this.busy || this.doubled || this.cascading || this.ceremonyRunning) return;
+    if (this.busy || this.doubled) return;
+    if (this.cascading) this.finishCascade();
     this.busy = true;
     btn.setEnabled(false);
     const ok = await Ya.showRewarded();
@@ -416,7 +417,17 @@ export class ResultScene extends Phaser.Scene {
     const res = runCascade(start, this.d.sparks);
     this.applyReward(res.inv, res.epicsGained, res.epicsOpened, false);
     this.sparkText?.setText(`+${sparksLabel(this.d.sparks * 2)}`);
-    this.playCascade(res.events, res.inv);
+    const play = () => {
+      if (!this.scene.isActive()) return;
+      this.playCascade(res.events, res.inv);
+    };
+    const wait = () => {
+      if (!this.scene.isActive()) return;
+      if (this.ceremonyRunning) this.time.delayedCall(400, wait);
+      else play();
+    };
+    if (this.ceremonyRunning) this.time.delayedCall(400, wait);
+    else play();
   }
 
   private async next() {
@@ -432,6 +443,7 @@ export class ResultScene extends Phaser.Scene {
       await Ya.showInterstitial();
     }
     this.scene.stop();
+    this.scene.resume('Game');
     this.scene.get('Game').scene.restart({ level: this.d.level + 1 });
   }
 
@@ -505,6 +517,7 @@ export class ResultScene extends Phaser.Scene {
       onClick: () => {
         if (this.busy) return;
         this.scene.stop();
+        this.scene.resume('Game');
         this.scene.get('Game').scene.restart({ level: d.level });
       },
     });
@@ -528,6 +541,7 @@ export class ResultScene extends Phaser.Scene {
     }
     const game = this.scene.get('Game') as GameScene;
     this.scene.stop();
+    this.scene.resume('Game');
     game.extendTime(10_000);
   }
 

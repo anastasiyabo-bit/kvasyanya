@@ -19,7 +19,7 @@ import { Insect, type InsectKind } from '../objects/Insect';
 import { Sound } from '../systems/audio';
 import { Save } from '../systems/save';
 import { Ya } from '../systems/yandex';
-import { Button, bubble, floatText, panel, popIn, sticker, txt } from '../ui/ui';
+import { Button, floatText, panel, popIn, sticker, txt } from '../ui/ui';
 import { burst, confetti, hearts, shake, starBurst } from '../ui/fx';
 
 type GState = 'intro' | 'tutorial' | 'playing' | 'paused' | 'ending' | 'result';
@@ -539,6 +539,7 @@ export class GameScene extends Phaser.Scene {
         sparks,
         canExtend: !out.won && !this.extendUsed,
       };
+      this.scene.pause();
       this.scene.launch('Result', data);
     });
   }
@@ -660,7 +661,14 @@ export class GameScene extends Phaser.Scene {
           this.time.delayedCall(PAIR_WINDOW_MS, () => {
             if (!partner.active || !partner.hittable || this.state !== 'playing') return;
             partner.scare();
-            bubble(this, partner.x, partner.y - 30, 'Ой! Я улетаю!', { life: 800, size: 28 });
+            const side = partner.x < W / 2 ? 1 : -1;
+            sticker(
+              this,
+              Phaser.Math.Clamp(partner.x + side * 120, 130, W - 130),
+              partner.y - 150,
+              'Ой! Я улетаю!',
+              { size: 28, life: 800 },
+            );
             Sound.speak(partner.kind === 'mosquito' ? 'mosquito' : 'fly', 2);
             if (this.pairMissHints < 2) {
               this.pairMissHints++;
