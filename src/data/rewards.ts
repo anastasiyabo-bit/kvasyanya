@@ -1,4 +1,4 @@
-import { HAT_UNLOCK_COUNT } from './cosmetics';
+import { lastUnlockedHat, lastUnlockedSkin, UNLOCK_ORDER } from './cosmetics';
 
 export { COSMETIC_COUNT } from './cosmetics';
 export const TIER_NAMES = ['Искорка', 'Блестяшка', 'Мешочек', 'Эпический сундук'] as const;
@@ -79,16 +79,18 @@ export function grantUnlocks(
 ): { unlocked: number; hat: number; skin: number; newHats: number[]; newSkins: number[] } {
   const newHats: number[] = [];
   const newSkins: number[] = [];
+  const limit = Math.min(cap, UNLOCK_ORDER.length);
   let n = Math.max(0, unlocked);
-  let hat = Math.min(n, HAT_UNLOCK_COUNT) - 1;
-  let skin = Math.max(0, n - HAT_UNLOCK_COUNT);
-  for (let i = 0; i < grants && n < cap; i++) {
+  let hat = lastUnlockedHat(n);
+  let skin = lastUnlockedSkin(n);
+  for (let i = 0; i < grants && n < limit; i++) {
     n += 1;
-    if (n <= HAT_UNLOCK_COUNT) {
-      hat = n - 1;
+    const item = UNLOCK_ORDER[n - 1];
+    if (item.kind === 'hat') {
+      hat = item.id;
       newHats.push(hat);
     } else {
-      skin = n - HAT_UNLOCK_COUNT;
+      skin = item.id;
       newSkins.push(skin);
     }
   }

@@ -49,7 +49,60 @@ export const FROG_SKINS: readonly FrogSkin[] = [
 
 export const SKIN_COUNT = FROG_SKINS.length;
 export const SKIN_NAMES = ['Квася', ...FROG_SKINS.map((s) => s.name)] as const;
-export const COSMETIC_COUNT = HAT_UNLOCK_COUNT + SKIN_COUNT;
+
+export type CosmeticUnlock = { kind: 'hat'; id: number } | { kind: 'skin'; id: number };
+
+/** Every 5th prize is a skin; the rest are hats. Default green Kvasi is free. */
+function buildUnlockOrder(): CosmeticUnlock[] {
+  const order: CosmeticUnlock[] = [];
+  let hat = 0;
+  let skin = 1;
+  while (hat < HAT_UNLOCK_COUNT || skin <= SKIN_COUNT) {
+    const n = order.length + 1;
+    if (n % 5 === 0 && skin <= SKIN_COUNT) {
+      order.push({ kind: 'skin', id: skin });
+      skin += 1;
+    } else if (hat < HAT_UNLOCK_COUNT) {
+      order.push({ kind: 'hat', id: hat });
+      hat += 1;
+    } else if (skin <= SKIN_COUNT) {
+      order.push({ kind: 'skin', id: skin });
+      skin += 1;
+    } else {
+      break;
+    }
+  }
+  return order;
+}
+
+export const UNLOCK_ORDER: readonly CosmeticUnlock[] = buildUnlockOrder();
+export const COSMETIC_COUNT = UNLOCK_ORDER.length;
+
+export function isHatUnlocked(hatId: number, unlocked: number): boolean {
+  if (hatId < 0) return true;
+  return UNLOCK_ORDER.slice(0, Math.max(0, unlocked)).some((x) => x.kind === 'hat' && x.id === hatId);
+}
+
+export function isSkinUnlocked(skinId: number, unlocked: number): boolean {
+  if (skinId <= 0) return true;
+  return UNLOCK_ORDER.slice(0, Math.max(0, unlocked)).some((x) => x.kind === 'skin' && x.id === skinId);
+}
+
+export function lastUnlockedHat(unlocked: number): number {
+  let hat = -1;
+  for (const x of UNLOCK_ORDER.slice(0, Math.max(0, unlocked))) {
+    if (x.kind === 'hat') hat = x.id;
+  }
+  return hat;
+}
+
+export function lastUnlockedSkin(unlocked: number): number {
+  let skin = 0;
+  for (const x of UNLOCK_ORDER.slice(0, Math.max(0, unlocked))) {
+    if (x.kind === 'skin') skin = x.id;
+  }
+  return skin;
+}
 
 export function skinById(id: number): FrogSkin | null {
   return FROG_SKINS.find((s) => s.id === id) ?? null;

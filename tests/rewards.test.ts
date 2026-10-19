@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { sparksLabel } from '../src/data/phrases';
-import { COSMETIC_COUNT, HAT_UNLOCK_COUNT } from '../src/data/cosmetics';
+import { COSMETIC_COUNT } from '../src/data/cosmetics';
 import { FUSE_COUNT, grantUnlocks, hatsEarned, runCascade, sparksForLevel, type Inventory } from '../src/data/rewards';
 
 const value = (inv: Inventory) => inv[0] + inv[1] * 5 + inv[2] * 25 + inv[3] * 125;
@@ -63,12 +63,22 @@ describe('reward cascade', () => {
     expect(sparksForLevel({ stars: 3, caught: 12 })).toBe(12);
   });
 
-  it('unlocks a colour skin after every hat is already owned', () => {
-    const r = grantUnlocks(HAT_UNLOCK_COUNT, COSMETIC_COUNT, 1);
-    expect(r.newHats).toEqual([]);
-    expect(r.newSkins).toEqual([1]);
-    expect(r.skin).toBe(1);
-    expect(r.unlocked).toBe(HAT_UNLOCK_COUNT + 1);
+  it('unlocks a colour skin as every 5th prize', () => {
+    const first = grantUnlocks(4, COSMETIC_COUNT, 1);
+    expect(first.newHats).toEqual([]);
+    expect(first.newSkins).toEqual([1]);
+    expect(first.skin).toBe(1);
+    expect(first.unlocked).toBe(5);
+
+    const second = grantUnlocks(9, COSMETIC_COUNT, 1);
+    expect(second.newSkins).toEqual([2]);
+
+    const third = grantUnlocks(13, COSMETIC_COUNT, 1);
+    expect(third.newSkins).toEqual([3]);
+
+    const batch = grantUnlocks(0, COSMETIC_COUNT, 5);
+    expect(batch.newHats).toEqual([0, 1, 2, 3]);
+    expect(batch.newSkins).toEqual([1]);
   });
 
   it('spark word agrees with the number', () => {

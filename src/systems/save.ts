@@ -1,4 +1,4 @@
-import { HAT_UNLOCK_COUNT } from '../data/cosmetics';
+import { COSMETIC_COUNT, isHatUnlocked, isSkinUnlocked, lastUnlockedHat, lastUnlockedSkin } from '../data/cosmetics';
 import type { Inventory } from '../data/rewards';
 
 export interface SaveData {
@@ -43,13 +43,11 @@ export function sanitize(raw: unknown): SaveData {
   if (Array.isArray(r.inventory) && r.inventory.length === 4 && r.inventory.every((x) => isNum(x) && x >= 0)) {
     d.inventory = r.inventory.map((x) => Math.floor(x as number)) as Inventory;
   }
-  if (isNum(r.hatsUnlocked)) d.hatsUnlocked = Math.max(0, Math.floor(r.hatsUnlocked));
+  if (isNum(r.hatsUnlocked)) d.hatsUnlocked = Math.max(0, Math.min(COSMETIC_COUNT, Math.floor(r.hatsUnlocked)));
   if (isNum(r.hat)) d.hat = Math.floor(r.hat);
-  const hatsOn = Math.min(d.hatsUnlocked, HAT_UNLOCK_COUNT);
-  if (d.hat >= hatsOn) d.hat = hatsOn - 1;
+  if (d.hat >= 0 && !isHatUnlocked(d.hat, d.hatsUnlocked)) d.hat = lastUnlockedHat(d.hatsUnlocked);
   if (isNum(r.skin)) d.skin = Math.max(0, Math.floor(r.skin));
-  const skinsOn = Math.max(0, d.hatsUnlocked - HAT_UNLOCK_COUNT);
-  if (d.skin > skinsOn) d.skin = skinsOn;
+  if (!isSkinUnlocked(d.skin, d.hatsUnlocked)) d.skin = lastUnlockedSkin(d.hatsUnlocked);
   if (typeof r.music === 'boolean') d.music = r.music;
   if (typeof r.sfx === 'boolean') d.sfx = r.sfx;
   if (typeof r.tutorialDone === 'boolean') d.tutorialDone = r.tutorialDone;

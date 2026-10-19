@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { frogIconKey, SKIN_COUNT, SKIN_NAMES } from '../art/skins';
+import { isHatUnlocked, isSkinUnlocked } from '../data/cosmetics';
 import { HAT_COUNT, HAT_NAMES } from '../art/textures';
 import { Sound } from '../systems/audio';
 import { Save } from '../systems/save';
@@ -21,7 +22,7 @@ export class HatsScene extends Phaser.Scene {
     c.add(panel(this, 0, 0, 640, 1080));
     c.add(txt(this, 0, -488, 'Наряды Кваси', 46, '#ffffff'));
     c.add(
-      txt(this, 0, -438, 'Эпический сундук открывает\nшапку или новый окрас!', 24, '#8a5a32', { stroke: '#fff1cf', strokeW: 2 }),
+      txt(this, 0, -438, 'Каждый пятый приз — новый окрас!\nОстальные призы — шапки.', 24, '#8a5a32', { stroke: '#fff1cf', strokeW: 2 }),
     );
 
     c.add(txt(this, 0, -378, 'Окрасы', 28, '#ffffff'));
@@ -29,7 +30,7 @@ export class HatsScene extends Phaser.Scene {
     const skinY = -292;
     for (let i = 0; i <= SKIN_COUNT; i++) {
       const x = (i - 1.5) * skinGap;
-      const unlocked = i === 0 || Save.data.hatsUnlocked >= HAT_COUNT + i;
+      const unlocked = isSkinUnlocked(i, Save.data.hatsUnlocked);
       const frame = this.add.graphics();
       this.skinFrames.push(frame);
       const img = this.add.image(x, skinY - 8, frogIconKey(i)).setScale(0.52);
@@ -58,7 +59,7 @@ export class HatsScene extends Phaser.Scene {
       const row = Math.floor(i / 3);
       const x = (col - 1) * gapX;
       const y = startY + row * gapY;
-      const unlocked = i < Math.min(Save.data.hatsUnlocked, HAT_COUNT);
+      const unlocked = isHatUnlocked(i, Save.data.hatsUnlocked);
       const frame = this.add.graphics();
       this.frames.push(frame);
       const img = this.add.image(x, y - 10, `hatshop${i}`).setOrigin(0.5, 0.5).setScale(0.34);
