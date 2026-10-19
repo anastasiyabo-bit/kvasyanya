@@ -1,0 +1,5 @@
+frog: 624x520 x5 -> /Users/anastasiyamakarova/Документы/скилы/nabey-bryushko/public/chars/frog.png (1411674 bytes)
+fly: 268x280 x2 -> /Users/anastasiyamakarova/Документы/скилы/nabey-bryushko/public/chars/fly.png (111757 bytes)
+mosquito: 336x280 x2 -> /Users/anastasiyamakarova/Документы/скилы/nabey-bryushko/public/chars/mosquito.png (112731 bytes)
+fatfly: 266x280 x2 -> /Users/anastasiyamakarova/Документы/скилы/nabey-bryushko/public/chars/fatfly.png (124358 bytes)
+goldfly: 268x280 x2 -> /Users/anastasiyamakarova/Документы/скилы/nabey-bryushko/public/chars/goldfly.png (124464 bytes)
