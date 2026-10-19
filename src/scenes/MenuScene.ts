@@ -53,8 +53,7 @@ export class MenuScene extends Phaser.Scene {
     this.buildCollection();
 
     this.frog = new Frog(this, FROG_X, PERCH_Y - 8);
-    this.frog.setHat(Save.data.hat);
-    this.frog.setSkin(Save.data.skin);
+    this.frog.dress(Save.data.hat, Save.data.skin);
     this.time.delayedCall(700, () => {
       this.frog.say('Привет! Я Квася!', 1600);
       Sound.speak('frog', 4);
@@ -146,8 +145,7 @@ export class MenuScene extends Phaser.Scene {
 
   private onOverlayClosed() {
     this.overlayOpen = false;
-    this.frog.setHat(Save.data.hat);
-    this.frog.setSkin(Save.data.skin);
+    this.frog.dress(Save.data.hat, Save.data.skin);
     Sound.setMusic(Save.data.music);
     Sound.setSfx(Save.data.sfx);
   }

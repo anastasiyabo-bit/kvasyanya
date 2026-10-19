@@ -126,8 +126,7 @@ export class GameScene extends Phaser.Scene {
   create() {
     this.add.image(0, 0, ensureBackground(this, this.level)).setOrigin(0);
     this.frog = new Frog(this, FROG_X, PERCH_Y - 8);
-    this.frog.setHat(Save.data.hat);
-    this.frog.setSkin(Save.data.skin);
+    this.frog.dress(Save.data.hat, Save.data.skin);
     this.frog.lookAt(FROG_X, 500);
     this.buildHud();
 
@@ -375,6 +374,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private startPlay() {
+    this.frog.dress(Save.data.hat, Save.data.skin);
     this.state = 'playing';
     Ya.gameplayStart();
     if (this.doubleTongueGranted) {
@@ -388,6 +388,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private startTutorial() {
+    this.frog.dress(Save.data.hat, Save.data.skin);
     this.state = 'tutorial';
     Ya.gameplayStart();
     this.tutorialStep = 'eat';

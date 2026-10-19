@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { CHAR_SHEETS } from '../art/chars';
-import { frogIconKey, frogTextureKey, SKIN_NAMES } from '../art/skins';
+import { frogIconKey, frogTextureKey, SKIN_NAMES, skinById } from '../art/skins';
+import { addHatOnFrogImage } from '../objects/Frog';
 import { HAT_NAMES } from '../art/textures';
 import { sparksLabel } from '../data/phrases';
 import { COSMETIC_COUNT, TIER_NAMES, grantUnlocks, hatsEarned, runCascade, type CascadeEvent, type Inventory } from '../data/rewards';
@@ -465,20 +466,22 @@ export class ResultScene extends Phaser.Scene {
     r.add(txt(this, 0, -370, 'Квася не наелась…', 52, '#ffffff'));
     const sad = this.add.image(0, -175, frogTextureKey(Save.data.skin), 4).setOrigin(0.5, 0.55).setScale(0.38);
     r.add(sad);
+    addHatOnFrogImage(this, r, sad, Save.data.hat);
     const fh = CHAR_SHEETS.frog_char.frameHeight;
     const eyes: [number, number][] = [
       [-100.5, -414.5],
       [89, -414.5],
     ];
+    const pupilTint = skinById(Save.data.skin)?.pupil ?? 0xffffff;
     for (let i = 0; i < 2; i++) {
       const [ex, ey] = eyes[i];
       const lx = ex * sad.scaleX;
       const ly = (fh + ey - fh * 0.55) * sad.scaleY;
-      r.add(
-        this.add
-          .image(sad.x + lx + (i === 0 ? 4 : -4), sad.y + ly + 7, 'frog_pupil')
-          .setScale(0.48),
-      );
+      const pupil = this.add
+        .image(sad.x + lx + (i === 0 ? 4 : -4), sad.y + ly + 7, 'frog_pupil')
+        .setScale(0.48);
+      if (pupilTint !== 0xffffff) pupil.setTint(pupilTint);
+      r.add(pupil);
     }
     const line =
       d.reason === 'min'

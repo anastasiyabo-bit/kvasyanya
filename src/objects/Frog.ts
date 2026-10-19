@@ -49,6 +49,26 @@ const FRAME_EYES: ([number, number][] | null)[] = [
 ];
 const PUPIL_RANGE = 18;
 
+/** Place a shop hat on a static frog image (pause / result portraits). */
+export function addHatOnFrogImage(
+  scene: Phaser.Scene,
+  parent: Phaser.GameObjects.Container,
+  frogImg: Phaser.GameObjects.Image,
+  hatId: number,
+) {
+  if (hatId < 0) return null;
+  const fit = HAT_FIT[hatId] ?? HAT_FIT[0];
+  const fh = CHAR_SHEETS.frog_char.frameHeight;
+  const hat = scene.add
+    .image(frogImg.x, frogImg.y + (fh * (1 - frogImg.originY) + fit.y) * frogImg.scaleY, `hat${hatId}`)
+    .setOrigin(0.5, fit.originY ?? 0.96)
+    .setScale(fit.scale * frogImg.scaleY);
+  const idx = parent.getIndex(frogImg);
+  if (HAT_BEHIND.has(hatId) && idx >= 0) parent.addAt(hat, idx);
+  else parent.add(hat);
+  return hat;
+}
+
 interface Strike {
   tx: number;
   ty: number;
@@ -127,6 +147,12 @@ export class Frog extends Phaser.GameObjects.Container {
     const w = DISPLAY_W * this.fatScaleX;
     const h = DISPLAY_H * this.fatScaleY;
     return Math.abs(x - this.x) < w / 2 && y < this.y + 10 && y > this.y - h;
+  }
+
+  /** Equips the player's chosen colour and hat. */
+  dress(hat: number, skin: number) {
+    this.setSkin(skin);
+    this.setHat(hat);
   }
 
   setSkin(id: number) {
