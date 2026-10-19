@@ -1,0 +1,9 @@
+node_modules
+dist
+.tools
+*.zip
+.DS_Store
+.env
+.env.*
+public/chars/_preview
+public/chars/meta.txt
