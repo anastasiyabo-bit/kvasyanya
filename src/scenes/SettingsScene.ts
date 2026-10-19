@@ -1,7 +1,9 @@
 import Phaser from 'phaser';
 import { Sound } from '../systems/audio';
 import { Save } from '../systems/save';
+import { Ya } from '../systems/yandex';
 import { Button, dimmer, panel, popIn, toggleButton, txt } from '../ui/ui';
+import { MenuScene } from './MenuScene';
 
 export class SettingsScene extends Phaser.Scene {
   constructor() {
@@ -63,6 +65,7 @@ export class SettingsScene extends Phaser.Scene {
         label: 'С 1-го уровня',
         size: 40,
         onClick: () => {
+          this.scene.stop();
           this.scene.stop('Menu');
           this.scene.start('Game', { level: 1 });
         },
@@ -75,8 +78,9 @@ export class SettingsScene extends Phaser.Scene {
     this.input.keyboard?.on('keydown-ESC', () => this.close());
   }
 
-  private close() {
-    this.scene.resume('Menu');
+  close() {
     this.scene.stop();
+    (this.scene.get('Menu') as MenuScene).releaseOverlay();
+    if (!Ya.platformPaused && !document.hidden) this.scene.resume('Menu');
   }
 }

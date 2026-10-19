@@ -145,8 +145,9 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.cameras.main.fadeIn(250, 26, 16, 48);
-    Sound.startMusic();
+    if (!Ya.platformPaused && !document.hidden) Sound.startMusic();
     this.showIntro();
+    if (Ya.platformPaused || document.hidden) this.freezeForPlatform();
     if (DEV) (window as unknown as { __game: GameScene }).__game = this;
   }
 
@@ -456,7 +457,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   pauseGame() {
-    if (this.state !== 'playing' && this.state !== 'tutorial') return;
+    if (this.state === 'paused' || this.state === 'result' || this.state === 'ending') return;
     if (!this.scene.isActive()) return;
     if (this.systemFrozen) this.unfreezeForPlatform();
     this.prevState = this.state;
@@ -469,7 +470,7 @@ export class GameScene extends Phaser.Scene {
   /** Ads, tab hide, window blur: freeze without the pause overlay (1.3 / 4.7 / 1.19.4). */
   private freezeForPlatform() {
     if (this.systemFrozen) return;
-    if (this.state !== 'playing' && this.state !== 'tutorial') return;
+    if (this.state === 'paused' || this.state === 'result') return;
     this.systemFrozen = true;
     Ya.gameplayStop();
     this.scene.pause();
@@ -477,9 +478,11 @@ export class GameScene extends Phaser.Scene {
 
   private unfreezeForPlatform() {
     if (!this.systemFrozen) return;
+    if (document.hidden || Ya.platformPaused) return;
     this.systemFrozen = false;
     this.scene.resume();
     if (this.state === 'playing' || this.state === 'tutorial') Ya.gameplayStart();
+    Sound.startMusic();
   }
 
   private onResumed() {

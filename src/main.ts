@@ -11,6 +11,7 @@ import { PauseScene } from './scenes/PauseScene';
 import { ResultScene } from './scenes/ResultScene';
 import { HatsScene } from './scenes/HatsScene';
 import { SettingsScene } from './scenes/SettingsScene';
+import { ExitScene } from './scenes/ExitScene';
 import { Sound } from './systems/audio';
 import { Save } from './systems/save';
 import { Ya } from './systems/yandex';
@@ -58,10 +59,14 @@ async function start() {
     render: { antialias: true, powerPreference: 'high-performance' },
     loader: { maxParallelDownloads: 100 },
     disableContextMenu: true,
-    scene: [BootScene, MenuScene, GameScene, PauseScene, ResultScene, HatsScene, SettingsScene],
+    scene: [BootScene, MenuScene, GameScene, PauseScene, ResultScene, HatsScene, SettingsScene, ExitScene],
   });
 
-  if (import.meta.env.DEV) (window as unknown as { __phaser: Phaser.Game }).__phaser = game;
+  if (import.meta.env.DEV) {
+    const w = window as unknown as { __phaser: Phaser.Game; __historyBack: () => void };
+    w.__phaser = game;
+    w.__historyBack = () => handleHistoryBack(game);
+  }
 
   const unlock = () => Sound.unlock();
   window.addEventListener('pointerdown', unlock, { passive: true });
@@ -83,6 +88,7 @@ async function start() {
   window.addEventListener('focus', () => platformResume('blur'));
   Ya.onPause(() => platformPause('platform'));
   Ya.onResume(() => platformResume('platform'));
+  Ya.onHistoryBack(() => handleHistoryBack(game));
 
   document.addEventListener('contextmenu', (e) => e.preventDefault());
   document.addEventListener('gesturestart', (e) => e.preventDefault());
@@ -93,6 +99,62 @@ async function start() {
     },
     { passive: false },
   );
+}
+
+function sceneOf(game: Phaser.Game, key: string) {
+  return game.scene.getScene(key);
+}
+
+function isRunning(game: Phaser.Game, key: string) {
+  const s = sceneOf(game, key);
+  return !!s && s.scene.isActive();
+}
+
+function isSleeping(game: Phaser.Game, key: string) {
+  const s = sceneOf(game, key);
+  return !!s && s.scene.isPaused();
+}
+
+function launchOverlay(game: Phaser.Game, key: string) {
+  const active = game.scene.getScenes(true)[0];
+  if (active) {
+    active.scene.launch(key);
+    return;
+  }
+  const paused = game.scene.getScenes(false).find((s) => s.scene.isPaused());
+  paused?.scene.launch(key);
+}
+
+function handleHistoryBack(game: Phaser.Game) {
+  if (Ya.adShowing || Ya.platformPaused) return;
+  if (isRunning(game, 'Exit')) return;
+  if (isRunning(game, 'Hats')) {
+    (sceneOf(game, 'Hats') as HatsScene).close();
+    return;
+  }
+  if (isRunning(game, 'Settings')) {
+    (sceneOf(game, 'Settings') as SettingsScene).close();
+    return;
+  }
+  if (isRunning(game, 'Result')) {
+    (sceneOf(game, 'Result') as ResultScene).goBack();
+    return;
+  }
+  if (isRunning(game, 'Pause')) {
+    launchOverlay(game, 'Exit');
+    return;
+  }
+  if (isRunning(game, 'Game') && !isSleeping(game, 'Game')) {
+    (sceneOf(game, 'Game') as GameScene).pauseGame();
+    if (isRunning(game, 'Pause') || isSleeping(game, 'Game')) return;
+  }
+  if (isRunning(game, 'Game') || isSleeping(game, 'Game')) {
+    launchOverlay(game, 'Exit');
+    return;
+  }
+  if (isRunning(game, 'Menu') || isSleeping(game, 'Menu')) {
+    (sceneOf(game, 'Menu') as MenuScene).openExit();
+  }
 }
 
 start();

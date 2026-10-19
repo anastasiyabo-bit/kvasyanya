@@ -448,6 +448,10 @@ export class ResultScene extends Phaser.Scene {
     this.scene.get('Game').scene.restart({ level: this.d.level + 1 });
   }
 
+  goBack() {
+    this.toMenu();
+  }
+
   private toMenu() {
     if (this.busy) return;
     this.ceremonyRunning = false;

@@ -35,6 +35,7 @@ export class MenuScene extends Phaser.Scene {
   private t = 0;
   private counts: Phaser.GameObjects.Text[] = [];
   private overlayOpen = false;
+  private systemFrozen = false;
 
   constructor() {
     super('Menu');
@@ -46,6 +47,7 @@ export class MenuScene extends Phaser.Scene {
     this.letters = [];
     this.counts = [];
     this.overlayOpen = false;
+    this.systemFrozen = false;
     this.spawnAcc = 900;
     this.autoAcc = 0;
     this.add.image(0, 0, ensureBackground(this, 1)).setOrigin(0);
@@ -79,14 +81,21 @@ export class MenuScene extends Phaser.Scene {
     this.input.keyboard?.on('keydown-ENTER', () => this.startGame(Save.data.level));
     this.input.keyboard?.on('keydown-SPACE', () => this.startGame(Save.data.level));
     this.events.on('resume', this.onOverlayClosed, this);
-    this.events.once('shutdown', () => this.events.off('resume', this.onOverlayClosed, this));
+    this.game.events.on('platform-pause', this.freezeForPlatform, this);
+    this.game.events.on('platform-resume', this.unfreezeForPlatform, this);
+    this.events.once('shutdown', () => {
+      this.events.off('resume', this.onOverlayClosed, this);
+      this.game.events.off('platform-pause', this.freezeForPlatform, this);
+      this.game.events.off('platform-resume', this.unfreezeForPlatform, this);
+    });
 
     this.cameras.main.fadeIn(300, 26, 16, 48);
-    Sound.startMusic();
+    if (!Ya.platformPaused && !document.hidden) Sound.startMusic();
     if (!readySent) {
       readySent = true;
       Ya.ready();
     }
+    if (Ya.platformPaused || document.hidden) this.freezeForPlatform();
   }
 
   private buildTitle() {
@@ -137,21 +146,47 @@ export class MenuScene extends Phaser.Scene {
   }
 
   private openOverlay(key: 'Hats' | 'Settings') {
-    if (this.overlayOpen) return;
+    if (this.overlayOpen || this.systemFrozen) return;
     this.overlayOpen = true;
     this.scene.launch(key);
     this.scene.pause();
   }
 
-  private onOverlayClosed() {
+  openExit() {
+    if (this.overlayOpen || this.systemFrozen) return;
+    this.overlayOpen = true;
+    this.scene.launch('Exit');
+    this.scene.pause();
+  }
+
+  private freezeForPlatform() {
+    if (this.systemFrozen) return;
+    this.systemFrozen = true;
+    if (!this.overlayOpen && this.scene.isActive()) this.scene.pause();
+  }
+
+  private unfreezeForPlatform() {
+    if (!this.systemFrozen) return;
+    if (document.hidden || Ya.platformPaused) return;
+    this.systemFrozen = false;
+    if (!this.overlayOpen) this.scene.resume();
+    Sound.startMusic();
+  }
+
+  releaseOverlay() {
     this.overlayOpen = false;
     this.frog.dress(Save.data.hat, Save.data.skin);
     Sound.setMusic(Save.data.music);
     Sound.setSfx(Save.data.sfx);
   }
 
+  private onOverlayClosed() {
+    this.releaseOverlay();
+    if (this.systemFrozen || Ya.platformPaused || document.hidden) this.scene.pause();
+  }
+
   private startGame(level: number) {
-    if (this.overlayOpen) return;
+    if (this.overlayOpen || this.systemFrozen || Ya.platformPaused) return;
     Sound.unlock();
     this.overlayOpen = true;
     this.cameras.main.fadeOut(220, 26, 16, 48);

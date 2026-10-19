@@ -292,12 +292,14 @@ function addSkinAnims(scene: Phaser.Scene, key: string, id: number) {
   });
 }
 
-export function bakeFrogSkins(scene: Phaser.Scene) {
+export async function bakeFrogSkins(scene: Phaser.Scene, onProgress?: (t: number) => void) {
   const spec = CHAR_SHEETS.frog_char;
   const srcTex = scene.textures.get('frog_char');
   const src = srcTex.getSourceImage() as HTMLImageElement;
   addIcon(scene, 'frog_char', frogIconKey(0), spec.frameWidth, spec.frameHeight);
-  for (const skin of FROG_SKINS) {
+  const total = Math.max(1, FROG_SKINS.length);
+  for (let i = 0; i < FROG_SKINS.length; i++) {
+    const skin = FROG_SKINS[i];
     const key = frogTextureKey(skin.id);
     if (scene.textures.exists(key)) scene.textures.remove(key);
     const canvas = document.createElement('canvas');
@@ -313,5 +315,7 @@ export function bakeFrogSkins(scene: Phaser.Scene) {
     }
     addSkinAnims(scene, key, skin.id);
     addIcon(scene, key, frogIconKey(skin.id), spec.frameWidth, spec.frameHeight);
+    onProgress?.((i + 1) / total);
+    await new Promise<void>((r) => setTimeout(r, 0));
   }
 }

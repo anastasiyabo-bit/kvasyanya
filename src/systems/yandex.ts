@@ -1,4 +1,5 @@
 /* Thin wrapper over Yandex Games SDK v2. Works without the SDK (local dev / other hosts). */
+import { Sound } from './audio';
 
 interface YaPlayer {
   getData(keys?: string[]): Promise<Record<string, unknown>>;
@@ -13,9 +14,11 @@ interface YaSdk {
   adv: {
     showFullscreenAdv(o: { callbacks: Record<string, (...a: unknown[]) => void> }): void;
     showRewardedVideo(o: { callbacks: Record<string, (...a: unknown[]) => void> }): void;
+    hideBannerAdv?: () => Promise<unknown>;
   };
   getPlayer(o?: { scopes?: boolean }): Promise<YaPlayer>;
   on?(event: string, cb: (...a: unknown[]) => void): void;
+  dispatchEvent?(eventName: string, detail?: object): Promise<unknown>;
   environment?: { i18n?: { lang?: string } };
   EVENTS?: {
     ACCOUNT_SELECTION_DIALOG_CLOSED: string;
@@ -39,12 +42,15 @@ class YandexBridge {
   sdk: YaSdk | null = null;
   player: YaPlayer | null = null;
   adShowing = false;
+  /** True while the platform (ad, purchase, tab) asked the game to pause. */
+  platformPaused = false;
   /** Raw ISO 639-1 from SDK. Always captured at init for requirement 2.14. */
   detectedLang = 'ru';
   private gameplay = false;
   private lastInterstitial = 0;
   private pauseListeners: Listener[] = [];
   private resumeListeners: Listener[] = [];
+  private backListeners: Listener[] = [];
 
   async init(): Promise<void> {
     try {
@@ -61,7 +67,6 @@ class YandexBridge {
         return;
       }
       this.sdk = await withTimeout(window.YaGames.init(), 10_000);
-      // Requirement 2.14: read environment.i18n.lang at startup, even for a RU-only game.
       try {
         const i18n = this.sdk.environment && this.sdk.environment.i18n;
         this.captureLang(i18n ? i18n.lang : undefined);
@@ -76,6 +81,10 @@ class YandexBridge {
           window.location.reload();
         });
       }
+      const back = this.sdk.EVENTS?.HISTORY_BACK;
+      if (back) this.sdk.on?.(back, () => this.emitBack());
+      void this.hideStickyBanner();
+      if (document.hidden) this.emitPause();
     } catch {
       this.sdk = null;
       this.captureLang(undefined);
@@ -87,6 +96,14 @@ class YandexBridge {
     this.detectedLang = code || 'ru';
     const htmlLang = CIS.has(this.detectedLang) ? 'ru' : this.detectedLang;
     document.documentElement.lang = htmlLang;
+  }
+
+  private async hideStickyBanner() {
+    try {
+      await this.sdk?.adv.hideBannerAdv?.();
+    } catch {
+      /* banner API is optional and may be disabled in the console */
+    }
   }
 
   async loadPlayerData(): Promise<Record<string, unknown> | null> {
@@ -114,7 +131,7 @@ class YandexBridge {
   }
 
   gameplayStart() {
-    if (this.gameplay) return;
+    if (this.platformPaused || this.gameplay) return;
     this.gameplay = true;
     try {
       this.sdk?.features?.GameplayAPI?.start();
@@ -141,12 +158,33 @@ class YandexBridge {
     this.resumeListeners.push(cb);
   }
 
+  onHistoryBack(cb: Listener) {
+    this.backListeners.push(cb);
+  }
+
+  exit() {
+    const name = this.sdk?.EVENTS?.EXIT;
+    if (!name || !this.sdk?.dispatchEvent) return;
+    this.sdk.dispatchEvent(name).catch(() => undefined);
+  }
+
   private emitPause() {
+    if (this.platformPaused) return;
+    this.platformPaused = true;
+    this.gameplayStop();
+    Sound.suspend('platform');
     for (const l of this.pauseListeners) l();
   }
 
   private emitResume() {
+    if (!this.platformPaused) return;
+    this.platformPaused = false;
+    Sound.resume('platform');
     for (const l of this.resumeListeners) l();
+  }
+
+  private emitBack() {
+    for (const l of this.backListeners) l();
   }
 
   canShowInterstitial() {
@@ -162,7 +200,6 @@ class YandexBridge {
   /** Resolves true only if the player watched the video to the end. */
   showRewarded(): Promise<boolean> {
     if (!this.sdk) {
-      // Local / GitHub Pages: no Yandex SDK, still grant the optional reward.
       if (!window.YaGames) return new Promise((r) => setTimeout(() => r(true), 400));
       return Promise.resolve(false);
     }
@@ -177,6 +214,7 @@ class YandexBridge {
     return new Promise((resolve) => {
       let rewarded = false;
       let done = false;
+      let opened = false;
       const finish = () => {
         if (done) return;
         done = true;
@@ -184,12 +222,14 @@ class YandexBridge {
         this.emitResume();
         resolve(trackReward ? rewarded : false);
       };
+      this.adShowing = true;
+      this.emitPause();
       try {
         show({
           onOpen: () => {
+            opened = true;
             this.adShowing = true;
-            this.lastInterstitial = Date.now();
-            this.emitPause();
+            if (!trackReward) this.lastInterstitial = Date.now();
           },
           onRewarded: () => {
             rewarded = true;
@@ -202,7 +242,7 @@ class YandexBridge {
         finish();
       }
       setTimeout(() => {
-        if (!this.adShowing) finish();
+        if (!opened) finish();
       }, 8_000);
       setTimeout(finish, 120_000);
     });

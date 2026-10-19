@@ -1,9 +1,11 @@
 import Phaser from 'phaser';
 import { frogIconKey, SKIN_COUNT, SKIN_NAMES } from '../art/skins';
+import { MenuScene } from './MenuScene';
 import { isHatUnlocked, isSkinUnlocked } from '../data/cosmetics';
 import { HAT_COUNT, HAT_NAMES } from '../art/textures';
 import { Sound } from '../systems/audio';
 import { Save } from '../systems/save';
+import { Ya } from '../systems/yandex';
 import { Button, dimmer, panel, popIn, txt } from '../ui/ui';
 
 export class HatsScene extends Phaser.Scene {
@@ -135,8 +137,9 @@ export class HatsScene extends Phaser.Scene {
     this.drawFrames();
   }
 
-  private close() {
-    this.scene.resume('Menu');
+  close() {
     this.scene.stop();
+    (this.scene.get('Menu') as MenuScene).releaseOverlay();
+    if (!Ya.platformPaused && !document.hidden) this.scene.resume('Menu');
   }
 }
