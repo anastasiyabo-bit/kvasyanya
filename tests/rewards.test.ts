@@ -14,11 +14,35 @@ import {
 const empty = { hats: 0, arts: 0, skins: 0 };
 
 describe('reward tracks', () => {
-  it('pays sparks for a win, a glitter for 3 stars, and a chest on a super level', () => {
+  it('pays sparks by stars, a glitter for 3 stars, and a chest on a super level', () => {
     expect(rewardsForLevel({ stars: 0, caught: 12, isSuper: true })).toEqual({ sparks: 0, glitters: 0, chests: 0 });
-    expect(rewardsForLevel({ stars: 1, caught: 12, isSuper: false })).toEqual({ sparks: 12, glitters: 0, chests: 0 });
-    expect(rewardsForLevel({ stars: 3, caught: 12, isSuper: false })).toEqual({ sparks: 12, glitters: 1, chests: 0 });
-    expect(rewardsForLevel({ stars: 2, caught: 9, isSuper: true })).toEqual({ sparks: 9, glitters: 0, chests: 1 });
+    expect(rewardsForLevel({ stars: 1, caught: 30, isSuper: false })).toEqual({ sparks: 2, glitters: 0, chests: 0 });
+    expect(rewardsForLevel({ stars: 2, caught: 9, isSuper: true })).toEqual({ sparks: 3, glitters: 0, chests: 1 });
+    expect(rewardsForLevel({ stars: 3, caught: 12, isSuper: false })).toEqual({ sparks: 4, glitters: 1, chests: 0 });
+  });
+
+  it('a hat is a few wins of work: never two in one level, even with the ×2 ad', () => {
+    for (const stars of [1, 2, 3]) {
+      const s = rewardsForLevel({ stars, caught: 40, isSuper: false }).sparks;
+      const r = applyRewards([HAT_COST - 1, 0, 0], { sparks: s * 2, glitters: 0, chests: 0 }, empty);
+      expect(r.drops.filter((d) => d.kind === 'hat').length).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('on average a win opens less than one hat, and most wins open none', () => {
+    const stars = [1, 2, 3, 3, 2, 3, 1, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 1, 3, 3];
+    let inv: Inventory = [0, 0, 0];
+    let hats = 0;
+    let empties = 0;
+    for (const s of stars) {
+      const r = applyRewards(inv, rewardsForLevel({ stars: s, caught: 20, isSuper: false }), { ...empty, hats });
+      const got = r.drops.filter((d) => d.kind === 'hat').length;
+      hats += got;
+      if (got === 0) empties++;
+      inv = r.inv;
+    }
+    expect(hats / stars.length).toBeLessThan(0.5);
+    expect(empties / stars.length).toBeGreaterThan(0.6);
   });
 
   it('opens a hat every 10 sparks and keeps the remainder', () => {

@@ -20,6 +20,6 @@ export const INSECT_SHEETS = {
 } as const satisfies Record<string, InsectSheet>;
 
 export const PROP_SHEETS = {
-  candy: { file: 'chars/candy.png', frameWidth: 160, frameHeight: 85 },
-  bell: { file: 'chars/bell.png', frameWidth: 108, frameHeight: 160 },
+  candy: { file: 'chars/candy.png', frameWidth: 160, frameHeight: 84 },
+  basket: { file: 'chars/basket.png', frameWidth: 150, frameHeight: 160 },
 } as const;

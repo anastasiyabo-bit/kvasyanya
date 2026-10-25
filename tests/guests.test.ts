@@ -1,12 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import {
   CANDY_BONUS_MS,
+  CANDY_MAX_FALL,
+  CANDY_TAP_R,
   GLUTTON_CHEW_MS,
+  RULE_LINES,
   WASP_NUMB_MS,
+  candyGone,
+  candyTapped,
   collectCandy,
   fireflyGlow,
   fireflyLit,
+  stepCandy,
   thiefEscape,
+  tossCandy,
   touchInsect,
 } from '../src/data/guests';
 
@@ -59,9 +66,36 @@ describe('guest rules', () => {
     }
   });
 
-  it('the caller brings two friends only when licked', () => {
-    expect(touchInsect('caller', 'lick', 150, 1).friends).toBe(2);
-    expect(touchInsect('caller', 'eat', 150, 1)).toMatchObject({ friends: 0, caught: 1, points: 150 });
+  it('a dropped candy tumbles away from the centre to the screen edge, spinning', () => {
+    for (const x0 of [180, 540]) {
+      let c = tossCandy(x0, 420, 720);
+      expect(Math.sign(c.vx)).toBe(x0 < 360 ? -1 : 1);
+      let t = 0;
+      let maxVy = 0;
+      while (!candyGone(c, 720, 1280) && t < 15_000) {
+        c = stepCandy(c, 16);
+        maxVy = Math.max(maxVy, c.vy);
+        t += 16;
+      }
+      expect(candyGone(c, 720, 1280)).toBe(true);
+      expect(Math.abs(c.angle)).toBeGreaterThan(360);
+      expect(maxVy).toBeLessThanOrEqual(CANDY_MAX_FALL);
+      // Slow enough to catch with a finger: at least a couple of seconds on screen.
+      expect(t).toBeGreaterThan(2000);
+    }
+  });
+
+  it('the falling candy has a finger-sized hitbox', () => {
+    const c = tossCandy(300, 500, 720);
+    expect(CANDY_TAP_R).toBeGreaterThanOrEqual(90);
+    expect(candyTapped(c, 300 + 80, 500 + 30)).toBe(true);
+    expect(candyTapped(c, 300 + 140, 500)).toBe(false);
+  });
+
+  it('candy lines are short and only about the candy', () => {
+    expect(RULE_LINES.candy).toContain('+4');
+    expect(RULE_LINES.candy.split('\n').length).toBeLessThanOrEqual(2);
+    expect(RULE_LINES.candy).not.toMatch(/подруж/i);
   });
 
   it('a firefly is a normal catch when lit; in the dark it only flies off', () => {

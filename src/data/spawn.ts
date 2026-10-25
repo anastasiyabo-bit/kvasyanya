@@ -1,20 +1,46 @@
 /** Who appears next. Pure; the scene passes in counts and a random source. */
 
-import type { BaseKind } from './guests';
 import type { LevelConfig } from './levels';
 import type { GuestKind } from './schedule';
+import { PAIR_KINDS, type FlyerKind, type MixSlot } from './species';
 
 export type Rand = () => number;
 
 /** No new guest when this little time is left. One already flying finishes on its own. */
 export const GUEST_CUTOFF_MS = 5000;
 export const NAP_SLEEPY_SHARE = 0.5;
+/** A freshly met kind not seen by this share of the level is sent in right away. */
+export const FRESH_DUE_SHARE = 0.25;
+/** Any kind of the level not seen by this share of the level is sent in right away. */
+export const KIND_DUE_SHARE = 0.45;
+/** Super levels: share of spawns that are a lone special instead of a pair. */
+export const SUPER_SOLO_SHARE = 0.22;
 
-export function rollKind(cfg: Pick<LevelConfig, 'goldChance' | 'fatChance' | 'mosquitoChance'>, r: number, allowSpecial: boolean): BaseKind {
-  if (allowSpecial && r < cfg.goldChance) return 'gold';
-  if (allowSpecial && r < cfg.goldChance + cfg.fatChance) return 'fat';
-  if (r < cfg.goldChance + cfg.fatChance + cfg.mosquitoChance) return 'mosquito';
-  return 'fly';
+export type KindCounts = Partial<Record<FlyerKind, number>>;
+
+const countOf = (c: KindCounts, k: FlyerKind) => c[k] ?? 0;
+
+/** Weighted roll over the slots that still have room under their cap. */
+export function rollMix(slots: readonly MixSlot[], counts: KindCounts, r: number): FlyerKind | null {
+  const open = slots.filter((s) => countOf(counts, s.kind) < s.cap);
+  const total = open.reduce((a, s) => a + s.weight, 0);
+  if (total <= 0) return null;
+  let x = r * total;
+  for (const s of open) {
+    x -= s.weight;
+    if (x < 0) return s.kind;
+  }
+  return open[open.length - 1].kind;
+}
+
+/** A kind of the level that has not flown yet and is overdue. Fresh kinds are due earlier. */
+export function overdueKind(slots: readonly MixSlot[], counts: KindCounts, playMs: number, durationMs: number): FlyerKind | null {
+  for (const s of slots) {
+    if (countOf(counts, s.kind) > 0 || s.cap <= 0) continue;
+    const due = durationMs * (s.fresh ? FRESH_DUE_SHARE : KIND_DUE_SHARE);
+    if (playMs >= due) return s.kind;
+  }
+  return null;
 }
 
 /** Play-time window (ms since start) in which the guest is due. The thief comes around the middle. */
@@ -37,6 +63,8 @@ export interface SpawnState {
   guestSpawned: boolean;
   /** A special visitor is on screen right now. */
   guestOnScreen: boolean;
+  /** Regular insects already sent in this level, by kind (a pair counts as two). */
+  counts: KindCounts;
 }
 
 export function guestMaySpawn(cfg: Pick<LevelConfig, 'guest' | 'maxAlive'>, s: SpawnState): boolean {
@@ -50,13 +78,32 @@ export function guestMaySpawn(cfg: Pick<LevelConfig, 'guest' | 'maxAlive'>, s: S
   );
 }
 
-export type SpawnPick = { type: 'guest'; guest: GuestKind } | { type: 'normal'; kind: BaseKind; sleepy: boolean };
+export type SpawnPick =
+  | { type: 'guest'; guest: GuestKind }
+  | { type: 'normal'; kind: FlyerKind }
+  | { type: 'pair'; kind: FlyerKind };
 
 /** Called on a spawn tick that already has room under maxAlive. */
 export function pickSpawn(cfg: LevelConfig, s: SpawnState, rand: Rand): SpawnPick {
+  if (cfg.isSuper) return pickSuper(cfg, s, rand);
   if (guestMaySpawn(cfg, s)) return { type: 'guest', guest: cfg.guest! };
-  if (cfg.isNap && rand() < NAP_SLEEPY_SHARE) return { type: 'normal', kind: 'fly', sleepy: true };
-  return { type: 'normal', kind: rollKind(cfg, rand(), !cfg.isSuper), sleepy: false };
+  const late = overdueKind(cfg.mix, s.counts, s.playMs, cfg.duration * 1000);
+  if (late) return { type: 'normal', kind: late };
+  if (cfg.isNap && rand() < NAP_SLEEPY_SHARE) return { type: 'normal', kind: 'sleepy' };
+  return { type: 'normal', kind: rollMix(cfg.mix, s.counts, rand()) ?? 'fly' };
+}
+
+/** Super levels fly in pairs; gold and sleepy flies come alone now and then, so it is not all grey. */
+function pickSuper(cfg: LevelConfig, s: SpawnState, rand: Rand): SpawnPick {
+  const pairs = cfg.mix.filter((m) => PAIR_KINDS.includes(m.kind));
+  const solos = cfg.mix.filter((m) => !PAIR_KINDS.includes(m.kind));
+  const late = overdueKind(cfg.mix, s.counts, s.playMs, cfg.duration * 1000);
+  if (late) return solos.some((m) => m.kind === late) ? { type: 'normal', kind: late } : { type: 'pair', kind: late };
+  if (solos.length && rand() < SUPER_SOLO_SHARE) {
+    const solo = rollMix(solos, s.counts, rand());
+    if (solo) return { type: 'normal', kind: solo };
+  }
+  return { type: 'pair', kind: rollMix(pairs, s.counts, rand()) ?? 'fly' };
 }
 
 /** Height farthest from everyone else, so the squeaker keeps to itself. */

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { evaluateLevel, evaluateRace, getLevelConfig, raceStars } from '../src/data/levels';
-import { RIVAL_LOOK_MS, RivalBrain, rivalPaceMs, rivalPick } from '../src/data/race';
+import { RIVAL_LOOK_MS, RivalBrain, raceStatus, rivalCatchValue, rivalPaceMs, rivalPick, rivalWants } from '../src/data/race';
 
 describe('race with Klesha', () => {
   it('a tie is her win, so the level is lost', () => {
@@ -67,5 +67,39 @@ describe('race with Klesha', () => {
     let ev = null;
     while (!ev) ev = brain.update(16, () => fly);
     expect(ev).toMatchObject({ type: 'strike', hit: true });
+  });
+
+  it('the line under the counters says who leads, and that a tie is hers', () => {
+    expect(raceStatus(0, 0)).toEqual({ text: 'Поймай больше, чем Клеша!', mood: 'tie' });
+    expect(raceStatus(4, 4)).toEqual({ text: 'Ничья — это победа Клеши!', mood: 'tie' });
+    expect(raceStatus(6, 4)).toMatchObject({ mood: 'ahead', text: 'Ты впереди на 2!' });
+    expect(raceStatus(3, 5)).toMatchObject({ mood: 'behind', text: 'Клеша впереди на 2 — догоняй!' });
+  });
+
+  it('she skips the wasp, the squeaker, the thief and a dark firefly', () => {
+    for (const kind of ['wasp', 'squeaker', 'thief'] as const) {
+      expect(rivalWants({ x: 0, y: 0, hittable: true, kind })).toBe(false);
+    }
+    expect(rivalWants({ x: 0, y: 0, hittable: true, kind: 'firefly', lit: false })).toBe(false);
+    expect(rivalWants({ x: 0, y: 0, hittable: true, kind: 'firefly', lit: true })).toBe(true);
+    const flies = [
+      { x: 200, y: 500, hittable: true, kind: 'wasp' as const },
+      { x: 500, y: 500, hittable: true, kind: 'gold' as const },
+    ];
+    expect(rivalPick(flies, 190, 840, 700)).toBe(flies[1]);
+  });
+
+  it('her specials count by the same rules: the glutton is three, the rest one', () => {
+    expect(rivalCatchValue('glutton')).toBe(3);
+    for (const kind of ['fly', 'gold', 'sleepy', 'fat', 'mosquito', 'candy'] as const) expect(rivalCatchValue(kind)).toBe(1);
+    expect(rivalCatchValue(undefined)).toBe(1);
+  });
+
+  it('a race flies the specials the player has already met', () => {
+    const kinds = (n: number) => getLevelConfig(n).mix.map((m) => m.kind);
+    expect(kinds(8)).toEqual(expect.arrayContaining(['fly', 'gold', 'sleepy']));
+    expect(kinds(8).length).toBeGreaterThanOrEqual(3);
+    expect(getLevelConfig(16).guest).not.toBeNull();
+    expect(kinds(16)).toEqual(expect.arrayContaining(['gold', 'sleepy']));
   });
 });

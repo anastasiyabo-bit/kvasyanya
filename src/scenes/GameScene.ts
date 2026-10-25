@@ -14,17 +14,22 @@ import {
 } from '../data/levels';
 import { DOUBLE_TONGUE_MS, pickSecondTongueTarget } from '../data/doubleTongue';
 import {
-  CALLER_FRIEND_DELAYS,
-  CALLER_FRIEND_SPEED,
+  GLUTTON_CHEW_MS,
   RULE_LINES,
+  candyGone,
+  candyTapped,
   collectCandy,
+  stepCandy,
   thiefEscape,
+  tossCandy,
   touchInsect,
+  type CandyFall,
   type TapZone,
 } from '../data/guests';
-import { RivalBrain, rivalPaceMs, rivalPick } from '../data/race';
+import { RivalBrain, raceStatus, rivalCatchValue, rivalPaceMs, rivalPick } from '../data/race';
 import type { GuestKind, Novelty } from '../data/schedule';
-import { pickGuestTime, pickSpawn, quietLane, quietSpot, rollKind, type SpawnState } from '../data/spawn';
+import type { FlyerKind } from '../data/species';
+import { pickGuestTime, pickSpawn, quietLane, quietSpot, type KindCounts, type SpawnState } from '../data/spawn';
 import { sparksForLevel } from '../data/rewards';
 import { BUG_BLUSH, FROG_EAT, FROG_FAIL, FROG_FULL, FROG_LICK, FROG_MISS, FROG_POKE, FROG_WIN, MOSQUITO_BLUSH, pick, plural } from '../data/phrases';
 import { Frog } from '../objects/Frog';
@@ -56,20 +61,26 @@ export interface ResultData {
 
 interface CandyDrop {
   img: Phaser.GameObjects.Image;
-  x0: number;
-  t: number;
+  ring: Phaser.GameObjects.Arc;
+  tag: Phaser.GameObjects.Text;
+  fall: CandyFall;
 }
 
 const PAIR_WINDOW_MS = 650;
 const TONGUE_TRIP_MS = 215;
-const CANDY_FALL = 85;
-const CANDY_R = 72;
+const CANDY_SCALE = 0.78;
+/** Rule banner: centre y and size. Insects keep under it while it is up. */
+const RULE_Y = 330;
+const RULE_W = 600;
+const RULE_H = 104;
+const RULE_MS = 2900;
 /** Pop-up words stay below the HUD. */
 const STICKER_MIN_Y = 330;
 const RACE_SCALE = 0.8;
 const KVASYA_RACE_X = 528;
 const KLESHA_X = 192;
 const KLESHA_SKINS = [3, 2, 6];
+const RIVAL_TINT = 0xffc9b8;
 const DEV = import.meta.env.DEV;
 
 export class GameScene extends Phaser.Scene {
@@ -109,12 +120,18 @@ export class GameScene extends Phaser.Scene {
   private numbUntil = 0;
   private chewUntil = 0;
   private busyHintAt = -9999;
-  private friendsDue: number[] = [];
   private candies: CandyDrop[] = [];
+  private kindCounts: KindCounts = {};
+  /** Bottom edge of a rule banner on screen; insects stay below it. */
+  private ruleCeiling: number | null = null;
+  private ruleBox: Phaser.GameObjects.Container | null = null;
   private rival: Frog | null = null;
   private rivalBrain: RivalBrain<Insect> | null = null;
   private rivalCaught = 0;
   private rivalSkin = 3;
+  private rivalPill: Phaser.GameObjects.Container | null = null;
+  private racePill: Phaser.GameObjects.Container | null = null;
+  private raceLine: Phaser.GameObjects.Text | null = null;
 
   // HUD
   private timerText!: Phaser.GameObjects.Text;
@@ -174,12 +191,17 @@ export class GameScene extends Phaser.Scene {
     this.numbUntil = 0;
     this.chewUntil = 0;
     this.busyHintAt = -9999;
-    this.friendsDue = [];
     this.candies = [];
+    this.kindCounts = {};
+    this.ruleCeiling = null;
+    this.ruleBox = null;
     this.rival = null;
     this.rivalBrain = null;
     this.rivalCaught = 0;
     this.rivalText = null;
+    this.rivalPill = null;
+    this.racePill = null;
+    this.raceLine = null;
   }
 
   create() {
@@ -243,9 +265,9 @@ export class GameScene extends Phaser.Scene {
 
     const sup = this.cfg.isSuper;
     const race = this.cfg.isRace;
-    const label = sup ? `СУПЕР ${this.level}` : race ? `Гонка ${this.level}` : `Уровень ${this.level}`;
-    const title = this.pill(360, 78, sup ? 330 : 250, 74, sup ? C.gold : race ? 0xffd9a8 : C.cream);
-    title.add(txt(this, 0, 0, label, 38, sup ? '#ffffff' : '#2b1d16', {
+    const label = sup ? `СУПЕР ${this.level}` : race ? 'Обгони Клешу!' : `Уровень ${this.level}`;
+    const title = this.pill(360, 78, sup ? 330 : race ? 340 : 250, 74, sup ? C.gold : race ? RIVAL_TINT : C.cream);
+    title.add(txt(this, 0, 0, label, race ? 34 : 38, sup ? '#ffffff' : race ? '#8a2a0c' : '#2b1d16', {
       stroke: sup ? '#2b1d16' : '#fff6dc',
       strokeW: sup ? 7 : 2,
     }));
@@ -260,14 +282,19 @@ export class GameScene extends Phaser.Scene {
 
     if (race) {
       // Klesha on the left, Kvasya on the right, same as the frogs below.
-      const rp = this.pill(196, 172, 290, 70, 0xdcecff);
-      rp.add(this.add.image(-104, -4, frogIconKey(this.rivalSkin)).setScale(0.3));
-      this.rivalText = txt(this, 26, 0, 'Клеша  0', 36, '#2b1d16', { stroke: '#fff6dc', strokeW: 2 });
-      rp.add(this.rivalText);
-      const kp = this.pill(524, 172, 290, 70);
-      kp.add(this.add.image(-104, -4, frogIconKey(Save.data.skin)).setScale(0.3));
-      this.catchText = txt(this, 26, 0, 'Квася  0', 36, '#2b1d16', { stroke: '#fff6dc', strokeW: 2 });
-      kp.add(this.catchText);
+      this.rivalPill = this.pill(190, 176, 300, 84, RIVAL_TINT);
+      this.rivalPill.add(this.add.image(-108, -6, frogIconKey(this.rivalSkin)).setScale(0.4));
+      this.rivalText = txt(this, 30, 0, 'Клеша  0', 36, '#8a2a0c', { stroke: '#fff6dc', strokeW: 2 });
+      this.rivalPill.add(this.rivalText);
+      this.racePill = this.pill(530, 176, 300, 84, 0xe3f6cf);
+      this.racePill.add(this.add.image(-108, -6, frogIconKey(Save.data.skin)).setScale(0.4));
+      this.catchText = txt(this, 30, 0, 'Квася  0', 36, '#2b1d16', { stroke: '#fff6dc', strokeW: 2 });
+      this.racePill.add(this.catchText);
+      const line = this.pill(360, 258, 560, 56, 0xfff1a8);
+      this.raceLine = txt(this, 0, 0, raceStatus(0, 0).text, 30, '#2b1d16', { stroke: '#fff6dc', strokeW: 2 });
+      line.add(this.raceLine);
+      this.nameplate(KLESHA_X, 'Клеша', RIVAL_TINT, '#8a2a0c');
+      this.nameplate(KVASYA_RACE_X, 'Квася', 0xe3f6cf, '#2b1d16');
       this.scoreText = txt(this, -1000, -1000, '0', 10).setVisible(false);
       this.barFill = this.add.graphics();
       this.barMax = 1;
@@ -287,6 +314,12 @@ export class GameScene extends Phaser.Scene {
     this.doubleHud = this.pill(360, 292, 360, 52, 0xffe08a).setDepth(72).setVisible(false);
     this.doubleHudText = txt(this, 0, 0, 'Двойной язык  8', 28, '#2b1d16', { stroke: '#fff6dc', strokeW: 2 });
     this.doubleHud.add(this.doubleHudText);
+  }
+
+  /** Name tag on the stage under a race frog. */
+  private nameplate(x: number, name: string, color: number, ink: string) {
+    const p = this.pill(x, 1226, 190, 56, color).setDepth(45);
+    p.add(txt(this, 0, -1, name, 32, ink, { stroke: '#fff6dc', strokeW: 2 }));
   }
 
   /** Progress bar with star (or threshold) markers. */
@@ -360,9 +393,10 @@ export class GameScene extends Phaser.Scene {
     if (this.cfg.isRace) {
       this.catchText.setText(`Квася  ${this.caught}`);
       this.rivalText?.setText(`Клеша  ${this.rivalCaught}`);
-      const ahead = this.caught > this.rivalCaught;
-      this.catchText.setColor(ahead ? '#3f9a2a' : '#2b1d16');
-      this.rivalText?.setColor(this.rivalCaught >= this.caught && this.rivalCaught > 0 ? '#c2410c' : '#2b1d16');
+      const status = raceStatus(this.caught, this.rivalCaught);
+      this.catchText.setColor(status.mood === 'ahead' ? '#3f9a2a' : '#2b1d16');
+      this.raceLine?.setText(status.text);
+      this.raceLine?.setColor(status.mood === 'ahead' ? '#2f7d1f' : status.mood === 'tie' && this.caught > 0 ? '#c2410c' : '#2b1d16');
     } else {
       this.catchText.setText(`${this.caught} / ${this.cfg.minCatch}`);
       this.catchText.setColor(this.caught >= this.cfg.minCatch ? '#3f9a2a' : '#2b1d16');
@@ -388,12 +422,12 @@ export class GameScene extends Phaser.Scene {
     const sup = this.cfg.isSuper;
     const race = this.cfg.isRace;
     const nap = this.cfg.isNap;
-    const ribbonText = sup ? 'СУПЕР-УРОВЕНЬ!' : race ? 'ГОНКА!' : nap ? 'ТИХИЙ ЧАС' : '';
-    const h = sup ? 760 : race ? 600 : nap ? 520 : 440;
+    const ribbonText = sup ? 'СУПЕР-УРОВЕНЬ!' : race ? 'ОБГОНИ КЛЕШУ!' : nap ? 'ТИХИЙ ЧАС' : '';
+    const h = sup ? 760 : race ? 720 : nap ? 520 : 440;
     c.add(panel(this, 0, 0, 620, h));
     let y = -h / 2 + 70;
     if (ribbonText) {
-      const ribbon = this.pill(0, -h / 2 + 10, 420, 80, sup ? C.gold : race ? 0xff9f43 : 0x8fa8ff);
+      const ribbon = this.pill(0, -h / 2 + 10, race ? 480 : 420, 80, sup ? C.gold : race ? 0xff9f43 : 0x8fa8ff);
       ribbon.setDepth(0);
       ribbon.add(txt(this, 0, -2, ribbonText, 44, '#ffffff'));
       c.add(ribbon);
@@ -404,15 +438,23 @@ export class GameScene extends Phaser.Scene {
     c.add(txt(this, 0, y, themeNameForLevel(this.level), 36, '#8a5a32', { stroke: '#fff1cf', strokeW: 2 }));
     y += 74;
     if (race) {
-      c.add(txt(this, 0, y, 'Обогни Клешу', 52, '#c2410c', { stroke: '#fff1cf', strokeW: 3 }));
-      y += 92;
+      // Kvasya > Klesha: the rule as a picture, then in words.
+      y += 20;
+      c.add(this.add.image(-150, y, frogIconKey(Save.data.skin)).setScale(0.62));
+      c.add(txt(this, 0, y - 6, '>', 96, '#ffc93c'));
+      c.add(this.add.image(150, y, frogIconKey(this.rivalSkin)).setScale(0.62));
+      c.add(txt(this, -150, y + 78, 'Квася', 30, '#2b1d16', { stroke: '#fff1cf', strokeW: 2 }));
+      c.add(txt(this, 150, y + 78, 'Клеша', 30, '#8a2a0c', { stroke: '#fff1cf', strokeW: 2 }));
+      y += 160;
       c.add(
-        txt(this, 0, y, `Поймай больше мошек,\nчем Клеша, за ${this.cfg.duration} сек.\nНичья — её победа!`, 34, '#2b1d16', {
+        txt(this, 0, y, `Поймай БОЛЬШЕ мошек,\nчем Клеша, за ${this.cfg.duration} сек.`, 36, '#2b1d16', {
           stroke: '#fff1cf',
           strokeW: 2,
         }),
       );
-      y += 120;
+      y += 84;
+      c.add(txt(this, 0, y, 'Ничья — победа Клеши!', 34, '#c2410c', { stroke: '#fff1cf', strokeW: 2 }));
+      y += 60;
     } else {
       const goal = `Поймай ${this.cfg.minCatch} ${plural(this.cfg.minCatch, 'мошку', 'мошки', 'мошек')}\nза ${this.cfg.duration} сек`;
       c.add(txt(this, 0, y, goal, 40, '#2b1d16', { stroke: '#fff1cf', strokeW: 2 }));
@@ -628,14 +670,15 @@ export class GameScene extends Phaser.Scene {
     Ya.gameplayStop();
     Sound.tempo = 1;
     for (const ins of this.insects) if (ins.active) ins.scare();
-    for (const c of this.candies) c.img.destroy();
+    for (const c of this.candies) this.removeCandy(c);
     this.candies = [];
-    this.friendsDue = [];
+    this.clearRule();
     const out = evaluateLevel(this.cfg, this.score, this.caught, this.rivalCaught);
     const mult = superMultiplier(this.cfg, this.score);
     const sparks = sparksForLevel({ stars: out.stars, caught: this.caught });
-    const title = this.cfg.isRace ? (out.won ? 'Квася быстрее!' : 'Клеша успела!') : out.won ? 'Брюшко набито!' : 'Время вышло!';
-    const t = txt(this, 360, 560, title, 76, out.won ? '#ffc93c' : '#ff8f9a').setDepth(90);
+    const raceTitle = out.won ? 'Клеша обогнана!' : this.caught === this.rivalCaught ? 'Ничья — победа Клеши!' : 'Клеша успела!';
+    const title = this.cfg.isRace ? raceTitle : out.won ? 'Брюшко набито!' : 'Время вышло!';
+    const t = txt(this, 360, 560, title, this.cfg.isRace ? 56 : 76, out.won ? '#ffc93c' : '#ff8f9a').setDepth(90);
     popIn(this, t);
     if (out.won) {
       this.frog.hop();
@@ -697,6 +740,7 @@ export class GameScene extends Phaser.Scene {
       guestDueAt: this.guestDueAt,
       guestSpawned: this.guestSpawned,
       guestOnScreen: this.guestOnScreen(),
+      counts: this.kindCounts,
     };
   }
 
@@ -705,53 +749,64 @@ export class GameScene extends Phaser.Scene {
     return { dir, x: dir > 0 ? -90 : W + 90, speed: Phaser.Math.Between(this.cfg.speedMin, this.cfg.speedMax) };
   }
 
+  /** Highest centre line a new insect may take: under the rule banner while it is up. */
+  private flightTop(pad: number) {
+    return this.ruleCeiling === null ? INSECT_TOP + pad : Math.min(INSECT_BOTTOM - pad, this.ruleCeiling + 100);
+  }
+
+  private countKind(kind: FlyerKind, n = 1) {
+    this.kindCounts[kind] = (this.kindCounts[kind] ?? 0) + n;
+  }
+
   private spawn() {
-    const c = this.cfg;
     const { dir, x, speed } = this.entry();
-    if (c.isSuper) {
-      const kind = rollKind(c, Math.random(), false);
-      const y = Phaser.Math.Between(INSECT_TOP + 50, INSECT_BOTTOM - 50);
-      // Tight cluster: two bodies overlap enough that a double-tap hits the same spot.
-      const gapX = 22;
-      const gapY = 18;
-      const off = Math.random() < 0.5 ? gapY : -gapY;
-      const a = new Insect(this, kind, x, y, dir, speed);
-      const b = new Insect(this, kind, x - dir * gapX, y + off, dir, speed);
-      b.copyFlight(a);
-      b.baseY = a.baseY + off;
-      b.setDepth(31);
-      const pid = ++this.pairSeq;
-      a.pairId = pid;
-      b.pairId = pid;
-      a.pairPartner = b;
-      b.pairPartner = a;
-      this.insects.push(a, b);
-      return;
-    }
-    const p = pickSpawn(c, this.spawnState(), Math.random);
+    const p = pickSpawn(this.cfg, this.spawnState(), Math.random);
     if (p.type === 'guest') {
       this.spawnGuest(p.guest);
       return;
     }
-    if (p.sleepy) {
+    if (p.type === 'pair') {
+      this.countKind(p.kind, 2);
+      this.spawnPair(p.kind as Exclude<FlyerKind, 'sleepy'>, x, dir, speed);
+      return;
+    }
+    this.countKind(p.kind);
+    if (p.kind === 'sleepy') {
       this.spawnSleepy(speed);
       return;
     }
-    const y = Phaser.Math.Between(INSECT_TOP + 40, INSECT_BOTTOM - 40);
+    const y = Phaser.Math.Between(this.flightTop(40), INSECT_BOTTOM - 40);
     this.insects.push(new Insect(this, p.kind, x, y, dir, speed));
+  }
+
+  /** Super level: two of a kind in a tight cluster, so a double-tap hits the same spot. */
+  private spawnPair(kind: Exclude<FlyerKind, 'sleepy'>, x: number, dir: 1 | -1, speed: number) {
+    const y = Phaser.Math.Between(this.flightTop(50), INSECT_BOTTOM - 50);
+    const gapX = 22;
+    const gapY = 18;
+    const off = Math.random() < 0.5 ? gapY : -gapY;
+    const a = new Insect(this, kind, x, y, dir, speed);
+    const b = new Insect(this, kind, x - dir * gapX, y + off, dir, speed);
+    b.copyFlight(a);
+    b.baseY = a.baseY + off;
+    b.setDepth(31);
+    const pid = ++this.pairSeq;
+    a.pairId = pid;
+    b.pairId = pid;
+    a.pairPartner = b;
+    b.pairPartner = a;
+    this.insects.push(a, b);
   }
 
   private spawnGuest(guest: GuestKind) {
     this.guestSpawned = true;
     const { dir, x, speed } = this.entry();
     const others = this.insects.filter((i) => i.active && i.hittable).map((i) => i.y);
-    const y =
-      guest === 'squeaker'
-        ? quietLane(others, INSECT_TOP + 50, INSECT_BOTTOM - 50)
-        : Phaser.Math.Between(INSECT_TOP + 50, INSECT_BOTTOM - 50);
+    const top = this.flightTop(50);
+    const y = guest === 'squeaker' ? quietLane(others, top, INSECT_BOTTOM - 50) : Phaser.Math.Between(top, INSECT_BOTTOM - 50);
     const ins = new Insect(this, guest, x, y, dir, speed);
     if (guest === 'thief') ins.onEscape = (i) => this.onThiefEscape(i);
-    if (guest === 'caller') Sound.jingle();
+    ins.ceiling = this.ruleCeiling;
     this.insects.push(ins);
     this.guestsSeen.push(guest);
     this.showRuleOnce(guest);
@@ -759,7 +814,8 @@ export class GameScene extends Phaser.Scene {
 
   private spawnSleepy(speed: number) {
     const others = this.insects.filter((i) => i.active && i.hittable).map((i) => ({ x: i.x, y: i.y }));
-    const p = quietSpot(others, { left: 110, right: W - 110, top: INSECT_TOP + 50, bottom: INSECT_BOTTOM - 50 }, Math.random);
+    const box = { left: 110, right: W - 110, top: this.flightTop(50), bottom: INSECT_BOTTOM - 50 };
+    const p = quietSpot(others, box, Math.random);
     const ins = new Insect(this, 'sleepy', p.x, p.y, Math.random() < 0.5 ? 1 : -1, 0);
     ins.setPosition(p.x, p.y);
     ins.sleep(speed);
@@ -768,32 +824,29 @@ export class GameScene extends Phaser.Scene {
     this.insects.push(ins);
   }
 
-  private spawnFriend() {
-    const { dir, x } = this.entry();
-    const y = Phaser.Math.Between(INSECT_TOP + 50, INSECT_BOTTOM - 50);
-    this.insects.push(new Insect(this, 'fly', x, y, dir, this.cfg.speedMin * CALLER_FRIEND_SPEED));
-  }
-
-  /** Callers' friends get the next free places under maxAlive. */
-  private tickFriends() {
-    if (!this.friendsDue.length) return;
-    this.friendsDue.sort((a, b) => a - b);
-    while (this.friendsDue.length && this.friendsDue[0] <= this.playMs && this.aliveCount() < this.cfg.maxAlive) {
-      this.friendsDue.shift();
-      this.spawnFriend();
-    }
-  }
-
+  /** One-time rule banner. While it is up, every insect keeps below it. */
   private showRuleOnce(what: Novelty) {
     if (Save.data.seenRules.includes(what)) return;
     Save.update((d) => {
       if (!d.seenRules.includes(what)) d.seenRules.push(what);
     });
-    const box = this.pill(360, 330, 600, 104, 0xfff1a8).setDepth(88);
+    this.clearRule();
+    const box = this.pill(360, RULE_Y, RULE_W, RULE_H, 0xfff1a8).setDepth(88);
     box.add(txt(this, 0, 0, RULE_LINES[what], 34, '#2b1d16', { stroke: '#fff6dc', strokeW: 2 }));
     popIn(this, box);
     Sound.fuse(0);
-    this.tweens.add({ targets: box, alpha: 0, delay: 2600, duration: 300, onComplete: () => box.destroy() });
+    this.ruleBox = box;
+    this.ruleCeiling = RULE_Y + RULE_H / 2 + 12;
+    this.tweens.add({ targets: box, alpha: 0, delay: RULE_MS - 300, duration: 300, onComplete: () => this.clearRule() });
+  }
+
+  private clearRule() {
+    if (this.ruleBox) {
+      this.tweens.killTweensOf(this.ruleBox);
+      this.ruleBox.destroy();
+    }
+    this.ruleBox = null;
+    this.ruleCeiling = null;
   }
 
   // ---------------- input ----------------
@@ -805,6 +858,13 @@ export class GameScene extends Phaser.Scene {
     const x = pointer.x;
     const y = pointer.y;
     if (this.state === 'playing' && this.tapCandy(x, y)) return;
+    // The basket is the thing to lick, even where it overlaps the fly's body.
+    const basket = this.insects.find((i) => i.active && i.hittable && i.hasCandy && i.basketHit(x, y));
+    if (basket) {
+      if (this.state === 'tutorial') this.tutorialTap(basket, 'lick');
+      else this.touch(basket, 'lick');
+      return;
+    }
     let best: Insect | null = null;
     let bestD = Infinity;
     for (const ins of this.insects) {
@@ -915,7 +975,7 @@ export class GameScene extends Phaser.Scene {
   private tapCandy(x: number, y: number): boolean {
     for (let i = this.candies.length - 1; i >= 0; i--) {
       const c = this.candies[i];
-      if (Math.hypot(c.img.x - x, c.img.y - y) > CANDY_R) continue;
+      if (!candyTapped(c.fall, x, y)) continue;
       this.candies.splice(i, 1);
       const got = collectCandy({ timeLeft: this.timeLeft, caught: this.caught });
       this.timeLeft = got.timeLeft;
@@ -923,12 +983,15 @@ export class GameScene extends Phaser.Scene {
       this.lastSecond = -1;
       Sound.candy();
       starBurst(this, c.img.x, c.img.y, 10);
+      c.ring.destroy();
+      c.tag.destroy();
       this.tweens.add({
         targets: c.img,
         x: this.timerPill.x,
         y: this.timerPill.y,
         scale: 0.3,
-        duration: 380,
+        angle: c.img.angle + 360,
+        duration: 420,
         ease: 'Cubic.In',
         onComplete: () => {
           c.img.destroy();
@@ -941,12 +1004,24 @@ export class GameScene extends Phaser.Scene {
     return false;
   }
 
+  /** The candy leaves the basket and tumbles to the screen edge; a ring and «+4» say «tap me». */
   private dropCandy(ins: Insect) {
     if (!ins.hasCandy) return;
     const p = ins.candyWorld();
     ins.dropCandy();
-    const img = this.add.image(p.x, p.y, 'candy').setScale(0.48).setDepth(40);
-    this.candies.push({ img, x0: p.x, t: 0 });
+    const fall = tossCandy(p.x, p.y, W);
+    const ring = this.add.circle(p.x, p.y, 62, 0xfff1a8, 0.35).setStrokeStyle(5, 0xffc93c).setDepth(65);
+    this.tweens.add({ targets: ring, scale: { from: 0.85, to: 1.15 }, duration: 380, yoyo: true, repeat: -1 });
+    const img = this.add.image(p.x, p.y, 'candy').setScale(CANDY_SCALE).setDepth(66);
+    const tag = txt(this, p.x, p.y - 66, '+4', 34, '#3f9a2a', { stroke: '#ffffff', strokeW: 4 }).setDepth(66);
+    this.candies.push({ img, ring, tag, fall });
+  }
+
+  private removeCandy(c: CandyDrop) {
+    this.tweens.killTweensOf(c.ring);
+    c.img.destroy();
+    c.ring.destroy();
+    c.tag.destroy();
   }
 
   private onThiefEscape(ins: Insect) {
@@ -1062,21 +1137,17 @@ export class GameScene extends Phaser.Scene {
           Sound.lick();
           Sound.blush();
           hearts(this, ins.x, ins.y - 20);
-          const mosq = ins.kind === 'mosquito' || ins.kind === 'caller';
+          const mosq = ins.kind === 'mosquito';
           let line = mosq ? pick(MOSQUITO_BLUSH) : pick(BUG_BLUSH);
           if (res.dropCandy) line = 'Ой, конфетка!';
-          if (res.friends > 0) line = 'Подружки, сюда!';
           if (ins.kind === 'wasp') line = 'Ж-ж… стыдно!';
           const side = ins.x < W / 2 ? 1 : -1;
-          sticker(this, Phaser.Math.Clamp(ins.x + side * 120, 130, W - 130), ins.y - 150, line, { size: 28, life: 880 });
+          sticker(this, Phaser.Math.Clamp(ins.x + side * 120, 130, W - 130), Math.max(STICKER_MIN_Y, ins.y - 150), line, {
+            size: 28,
+            life: 880,
+          });
           Sound.speak(mosq ? 'mosquito' : 'fly', 3);
           if (res.dropCandy) this.dropCandy(ins);
-          if (res.friends > 0) {
-            Sound.jingle();
-            for (let i = 0; i < res.friends; i++) {
-              this.friendsDue.push(this.playMs + CALLER_FRIEND_DELAYS[Math.min(i, CALLER_FRIEND_DELAYS.length - 1)]);
-            }
-          }
           ins.blush();
           if (Math.random() < 0.3) this.frog.say(pick(FROG_LICK), 700);
         },
@@ -1115,7 +1186,11 @@ export class GameScene extends Phaser.Scene {
         onBack: () => {
           t.swallow();
           rival.gulp();
-          this.rivalCaught++;
+          const got = rivalCatchValue(t.kind);
+          this.rivalCaught += got;
+          if (t.kind === 'glutton') brain.hold(GLUTTON_CHEW_MS);
+          if (got > 1) floatText(this, rival.x, rival.y - 260, `+${got}`, '#c2410c', 40);
+          if (this.rivalPill) this.tweens.add({ targets: this.rivalPill, scale: { from: 1.15, to: 1 }, duration: 240, ease: 'Back.Out' });
           this.refreshHud();
           if (Math.random() < 0.25) rival.say(pick(['Ням!', 'Моя!', 'Хе-хе!']), 600);
         },
@@ -1139,6 +1214,7 @@ export class GameScene extends Phaser.Scene {
         this.insects.splice(i, 1);
         continue;
       }
+      ins.ceiling = this.ruleCeiling;
       ins.update(time, d);
     }
     this.updateCandies(d);
@@ -1151,7 +1227,6 @@ export class GameScene extends Phaser.Scene {
     this.tickRival(d);
     this.timeLeft -= d;
     if (this.playMs >= this.spawnQuietUntil) {
-      this.tickFriends();
       this.spawnAcc += d;
       if (this.spawnAcc >= this.cfg.spawnInterval && this.aliveCount() < this.cfg.maxAlive) {
         this.spawnAcc = 0;
@@ -1177,15 +1252,18 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  /** Missed candy simply leaves the screen: no penalty. */
   private updateCandies(d: number) {
+    if (this.state !== 'playing') return;
     for (let i = this.candies.length - 1; i >= 0; i--) {
       const c = this.candies[i];
-      c.t += d;
-      c.img.y += (CANDY_FALL * d) / 1000;
-      c.img.x = c.x0 + Math.sin(c.t / 420) * 28;
-      c.img.angle = Math.sin(c.t / 300) * 20;
-      if (c.img.y > H + 50) {
-        c.img.destroy();
+      c.fall = stepCandy(c.fall, d);
+      const { x, y, angle } = c.fall;
+      c.img.setPosition(x, y).setAngle(angle);
+      c.ring.setPosition(x, y);
+      c.tag.setPosition(x, y - 66);
+      if (candyGone(c.fall, W, H)) {
+        this.removeCandy(c);
         this.candies.splice(i, 1);
       }
     }

@@ -1,4 +1,5 @@
 import { isSuperLevel, levelPlan, type GuestKind, type LevelKind, type Novelty } from './schedule';
+import { levelMix, type MixSlot } from './species';
 
 export { isSuperLevel, isRaceLevel, isNapLevel, levelPlan } from './schedule';
 export type { GuestKind, LevelKind, Novelty } from './schedule';
@@ -18,9 +19,8 @@ export interface LevelConfig {
   maxAlive: number;
   speedMin: number;
   speedMax: number;
-  mosquitoChance: number;
-  fatChance: number;
-  goldChance: number;
+  /** Regular insects of this level and their odds. */
+  mix: MixSlot[];
   starScores: [number, number, number];
   superThreshold: number;
 }
@@ -59,9 +59,7 @@ export function getLevelConfig(level: number): LevelConfig {
     maxAlive,
     speedMin,
     speedMax,
-    mosquitoChance: clamp(0.05 + n * 0.03, 0.05, 0.5),
-    fatChance: n < 2 ? 0 : 0.12,
-    goldChance: n < 3 ? 0 : 0.05,
+    mix: levelMix(n, plan.kind, plan.guest !== null),
     starScores,
     superThreshold: Math.round(s1 * 1.15),
   };

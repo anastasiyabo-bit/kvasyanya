@@ -40,8 +40,8 @@ SHEETS: dict[str, dict] = {
     "firefly": {"src": "firefly-wing-up.jpg"},
 }
 
-# Single images (no flap): candy on the back, the caller's bell.
-PROPS = {"candy": "candy.jpg", "bell": "bell.jpg"}
+# Single images (no flap): the candy and the basket the candy fly carries it in.
+PROPS = {"candy": "candy.jpg", "basket": "basket.jpg"}
 
 
 def wing_fill(rgb: np.ndarray, a: np.ndarray) -> np.ndarray:
@@ -160,13 +160,7 @@ def build(name: str, spec: dict):
     src = SRC / spec["src"]
     im = chroma(src)
     if spec.get("key_enclosed"):
-        raw = np.array(Image.open(src).convert("RGB"))
-        bg = bg_color(raw).astype(np.int32)
-        d = np.sqrt(np.sum((raw.astype(np.int32) - bg) ** 2, axis=2))
-        keyed = np.array(im)
-        hole = ndimage.binary_dilation(d < 60, iterations=2)
-        keyed[hole, 3] = 0
-        im = Image.fromarray(keyed)
+        im = key_enclosed(src, im)
     arr, wing_masks = split_wings(im)
     arr = clean_specks(arr)
     if spec.get("sleepy"):
@@ -262,8 +256,19 @@ def build(name: str, spec: dict):
     return info
 
 
+def key_enclosed(src: Path, im: Image.Image) -> Image.Image:
+    """Also clear background-coloured pockets the outer key cannot reach (inside handles, between legs)."""
+    raw = np.array(Image.open(src).convert("RGB"))
+    bg = bg_color(raw).astype(np.int32)
+    d = np.sqrt(np.sum((raw.astype(np.int32) - bg) ** 2, axis=2))
+    keyed = np.array(im)
+    hole = ndimage.binary_dilation(d < 60, iterations=2)
+    keyed[hole, 3] = 0
+    return Image.fromarray(keyed)
+
+
 def build_prop(name: str, file: str, target: int = 160):
-    im = chroma(SRC / file)
+    im = key_enclosed(SRC / file, chroma(SRC / file))
     arr = clean_specks(np.array(im))
     a = arr[:, :, 3]
     ys, xs = np.where(a > 12)

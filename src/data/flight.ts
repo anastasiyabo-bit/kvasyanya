@@ -59,6 +59,26 @@ export function fitFlight(baseY: number, amp: number, top: number, bottom: numbe
   return { baseY: Math.max(top + a, Math.min(bottom - a, baseY)), amp: a };
 }
 
+/**
+ * Flight line that keeps the whole insect (it reaches `reach` px above its centre) under
+ * `ceiling`, still inside the band. A banner on screen sets the ceiling.
+ */
+export function underCeiling(
+  baseY: number,
+  amp: number,
+  reach: number,
+  ceiling: number,
+  bottom: number,
+): { baseY: number; amp: number } {
+  return fitFlight(baseY, amp, Math.min(bottom, ceiling + reach), bottom);
+}
+
+/** Moves `from` toward `to` by at most `maxStep`. */
+export function approach(from: number, to: number, maxStep: number): number {
+  if (Math.abs(to - from) <= maxStep) return to;
+  return from + Math.sign(to - from) * maxStep;
+}
+
 export function flightOffset(p: FlightPattern, tMs: number): number {
   return Math.sin((tMs / p.periodMs) * Math.PI * 2 + p.phase) * p.amp;
 }

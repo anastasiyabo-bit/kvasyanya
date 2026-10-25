@@ -4,11 +4,44 @@ import {
   AMP_BANDS,
   FLAP_JITTER_MAX,
   FlightDeck,
+  approach,
   fitFlight,
   flapJitter,
   flightOffset,
   jitterFade,
+  underCeiling,
 } from '../src/data/flight';
+
+describe('flying under a rule banner', () => {
+  const bannerBottom = 330 + 52 + 12;
+
+  it('the whole insect, wings included, stays below the banner and inside the band', () => {
+    for (const [baseY, amp, reach] of [
+      [320, 60, 90],
+      [420, 30, 110],
+      [600, 80, 70],
+      [300, 120, 95],
+    ]) {
+      const f = underCeiling(baseY, amp, reach, bannerBottom, INSECT_BOTTOM);
+      expect(f.baseY - f.amp - reach).toBeGreaterThanOrEqual(bannerBottom - 0.001);
+      expect(f.baseY + f.amp).toBeLessThanOrEqual(INSECT_BOTTOM);
+    }
+  });
+
+  it('a line already low enough is left alone', () => {
+    expect(underCeiling(620, 40, 90, bannerBottom, INSECT_BOTTOM)).toEqual({ baseY: 620, amp: 40 });
+  });
+
+  it('the duck is a slide, not a jump', () => {
+    expect(approach(300, 500, 20)).toBe(320);
+    expect(approach(495, 500, 20)).toBe(500);
+    expect(approach(500, 300, 20)).toBe(480);
+  });
+
+  it('the band itself still starts at the usual top when no banner is up', () => {
+    expect(INSECT_TOP).toBeLessThan(bannerBottom);
+  });
+});
 
 function seeded(seed: number) {
   let s = seed >>> 0;

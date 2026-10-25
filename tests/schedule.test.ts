@@ -3,6 +3,8 @@ import { getLevelConfig } from '../src/data/levels';
 import {
   GUEST_ROTATION,
   INTRO_LEVELS,
+  RACE_GUESTS,
+  guestKnownBy,
   isNapLevel,
   isRaceLevel,
   isSuperLevel,
@@ -56,26 +58,36 @@ describe('level calendar', () => {
     }
   });
 
-  it('kinds never mix: guests only on free levels, none on super, race or quiet hour', () => {
+  it('kinds never mix: guests on free levels and races only, none on super or quiet hour', () => {
     for (const n of levels) {
       const p = levelPlan(n);
-      const flags = [isSuperLevel(n), isRaceLevel(n), isNapLevel(n), p.guest !== null].filter(Boolean);
+      const flags = [isSuperLevel(n), isRaceLevel(n), isNapLevel(n)].filter(Boolean);
       expect(flags.length).toBeLessThanOrEqual(1);
       if (p.kind === 'guest') expect(p.guest).not.toBeNull();
-      else expect(p.guest).toBeNull();
+      else if (p.kind !== 'race') expect(p.guest).toBeNull();
     }
+  });
+
+  it('a race brings only a race-friendly guest the player has already met', () => {
+    expect(levelPlan(8).guest).toBeNull();
+    for (const n of levels.filter(isRaceLevel)) {
+      const g = levelPlan(n).guest;
+      if (!g) continue;
+      expect(RACE_GUESTS).toContain(g);
+      expect(guestKnownBy(g, n)).toBe(true);
+    }
+    expect(levels.filter(isRaceLevel).filter((n) => levelPlan(n).guest).length).toBeGreaterThan(10);
   });
 
   it('introduces each rule on its own level in the agreed order', () => {
     expect(INTRO_LEVELS.map((i) => [i.level, i.what])).toEqual([
-      [4, 'candy'],
-      [7, 'wasp'],
-      [9, 'squeaker'],
-      [11, 'thief'],
-      [13, 'glutton'],
-      [17, 'firefly'],
-      [18, 'caller'],
+      [9, 'candy'],
+      [11, 'wasp'],
+      [13, 'squeaker'],
+      [17, 'thief'],
+      [18, 'glutton'],
       [19, 'nap'],
+      [21, 'firefly'],
     ]);
     for (const { level, what } of INTRO_LEVELS) {
       const p = levelPlan(level);
@@ -85,12 +97,12 @@ describe('level calendar', () => {
     }
   });
 
-  it('no guest before level 4, and level 1 stays a plain tutorial level', () => {
-    for (const n of [1, 2, 3]) expect(levelPlan(n).kind).toBe('normal');
+  it('no guest before level 9: the first levels belong to the regular insects', () => {
+    for (const n of [1, 2, 3, 4, 6, 7]) expect(levelPlan(n).kind).toBe('normal');
   });
 
   it('after the intros guests take about every second free level, never two free levels in a row', () => {
-    const free = levels.filter((n) => n > 19 && !isSuperLevel(n) && !isRaceLevel(n) && !isNapLevel(n));
+    const free = levels.filter((n) => n > 21 && !isSuperLevel(n) && !isRaceLevel(n) && !isNapLevel(n));
     let prevGuest = false;
     let guests = 0;
     for (const n of free) {
@@ -103,9 +115,9 @@ describe('level calendar', () => {
     expect(guests / free.length).toBeLessThan(0.55);
   });
 
-  it('all seven guests keep rotating after the intros', () => {
+  it('all six guests keep rotating after the intros', () => {
     const seen = new Set<GuestKind>();
-    for (let n = 20; n <= 120; n++) {
+    for (let n = 22; n <= 120; n++) {
       const g = levelPlan(n).guest;
       if (g) seen.add(g);
     }
@@ -115,7 +127,8 @@ describe('level calendar', () => {
   it('level config carries the plan', () => {
     expect(getLevelConfig(8).isRace).toBe(true);
     expect(getLevelConfig(19).isNap).toBe(true);
-    expect(getLevelConfig(7).guest).toBe('wasp');
+    expect(getLevelConfig(11).guest).toBe('wasp');
+    expect(getLevelConfig(7).guest).toBeNull();
     expect(getLevelConfig(10).isSuper).toBe(true);
     expect(getLevelConfig(10).guest).toBeNull();
   });

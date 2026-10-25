@@ -13,9 +13,6 @@ export const GLUTTON_MULT = 3;
 export const SQUEAK_QUIET_MS = 2000;
 export const SLEEP_MS = 2000;
 export const WAKE_SPEED_MUL = 2.4;
-export const CALLER_FRIENDS = 2;
-export const CALLER_FRIEND_DELAYS = [900, 1500] as const;
-export const CALLER_FRIEND_SPEED = 0.55;
 export const FIREFLY_PERIOD_MS = 1000;
 export const FIREFLY_LIT_MS = 420;
 
@@ -28,7 +25,6 @@ export interface TouchResult {
   tongue: boolean;
   numbMs: number;
   chewMs: number;
-  friends: number;
   dropCandy: boolean;
   /** Squeaker: everyone on screen flees, nothing spawns for a while. */
   scatterMs: number;
@@ -43,7 +39,6 @@ const NOTHING: TouchResult = {
   tongue: false,
   numbMs: 0,
   chewMs: 0,
-  friends: 0,
   dropCandy: false,
   scatterMs: 0,
   spook: false,
@@ -65,8 +60,6 @@ export function touchInsect(kind: InsectKind, zone: TapZone, base: number, mult:
         return { ...normal, caught: GLUTTON_MULT, points: Math.round(base * GLUTTON_MULT * mult), chewMs: GLUTTON_CHEW_MS };
       }
       return normal;
-    case 'caller':
-      return zone === 'lick' ? { ...normal, friends: CALLER_FRIENDS } : normal;
     case 'candy':
       return zone === 'lick' ? { ...normal, dropCandy: true } : normal;
     case 'squeaker':
@@ -81,6 +74,48 @@ export function touchInsect(kind: InsectKind, zone: TapZone, base: number, mult:
 /** The falling candy buys time and nothing else. */
 export function collectCandy(s: { timeLeft: number; caught: number }): { timeLeft: number; caught: number } {
   return { timeLeft: s.timeLeft + CANDY_BONUS_MS, caught: s.caught };
+}
+
+/** A dropped candy: tossed up and away from the middle, then falls spinning until it leaves the screen. */
+export interface CandyFall {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  /** Degrees. */
+  angle: number;
+  /** Degrees per second. */
+  spin: number;
+}
+
+export const CANDY_TOSS_VY = -170;
+export const CANDY_DRIFT_VX = 70;
+export const CANDY_GRAVITY = 300;
+/** Slow enough to tap on a phone, fast enough to keep the level moving. */
+export const CANDY_MAX_FALL = 200;
+export const CANDY_SPIN = 320;
+/** Finger-sized: a little more than the drawn candy. */
+export const CANDY_TAP_R = 100;
+const CANDY_OFF = 90;
+
+export function tossCandy(x: number, y: number, screenW: number): CandyFall {
+  const away = x < screenW / 2 ? -1 : 1;
+  return { x, y, vx: CANDY_DRIFT_VX * away, vy: CANDY_TOSS_VY, angle: 0, spin: CANDY_SPIN * away };
+}
+
+export function stepCandy(c: CandyFall, dtMs: number): CandyFall {
+  const dt = dtMs / 1000;
+  const vy = Math.min(CANDY_MAX_FALL, c.vy + CANDY_GRAVITY * dt);
+  return { ...c, x: c.x + c.vx * dt, y: c.y + vy * dt, vy, angle: c.angle + c.spin * dt };
+}
+
+/** Out past an edge: it is simply gone, no penalty. */
+export function candyGone(c: CandyFall, screenW: number, screenH: number): boolean {
+  return c.y > screenH + CANDY_OFF || c.x < -CANDY_OFF || c.x > screenW + CANDY_OFF;
+}
+
+export function candyTapped(c: CandyFall, px: number, py: number): boolean {
+  return Math.hypot(c.x - px, c.y - py) <= CANDY_TAP_R;
 }
 
 /** The thief got away with one catch. Points already earned stay. */
@@ -104,12 +139,11 @@ export function fireflyGlow(tMs: number, phaseMs = 0): number {
 
 /** One-line rule shown the first time the player meets it. */
 export const RULE_LINES: Record<Novelty, string> = {
-  candy: 'Лизни — уронит конфетку!\nТапни конфетку: +4 сек',
+  candy: 'Лизни — конфета выпадет.\nТапни её: +4 сек!',
   wasp: 'Осу — только липни',
   squeaker: 'Этого не трогай!',
   thief: 'Воришка! Не дай ей улететь',
   glutton: 'Обжорка: съешь — сразу ×3!',
   firefly: 'Лови, когда светится!',
-  caller: 'Лизни зазывалу —\nпозовёт подружек!',
   nap: 'Тихий час! Лови сонь,\nпока не проснулись',
 };

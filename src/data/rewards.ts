@@ -4,8 +4,10 @@ import { sparksLabel } from './phrases';
 export const TIER_NAMES = ['Искорки', 'Блестяшки', 'Сундучек'] as const;
 export const TIER_FOR = ['шапочки', 'рисунки', 'окрасы'] as const;
 
-/** Caught flies fill this bar. A full bar opens the next hat. */
+/** Won levels fill this bar. A full bar opens the next hat. */
 export const HAT_COST = 10;
+/** Sparks for a win with 1, 2 and 3 stars. Even doubled by the ad, one level never opens two hats. */
+export const SPARKS_FOR_STARS = [2, 3, 4] as const;
 /** Three-star clears drop one glitter. A full bar opens the next belly drawing. */
 export const ART_COST = 3;
 
@@ -33,13 +35,14 @@ export interface RewardInput {
 }
 
 /**
- * A win pays sparks for every catch.
+ * A win pays a few sparks by its stars, so a hat takes about three wins.
  * Three stars also pay one glitter. A cleared super level pays one chest.
  */
 export function rewardsForLevel(r: RewardInput): RewardGain {
   if (r.stars <= 0) return { sparks: 0, glitters: 0, chests: 0 };
+  const stars = Math.min(3, Math.max(1, Math.floor(r.stars)));
   return {
-    sparks: Math.max(0, Math.floor(r.caught)),
+    sparks: SPARKS_FOR_STARS[stars - 1],
     glitters: r.stars >= 3 ? 1 : 0,
     chests: r.isSuper ? 1 : 0,
   };

@@ -203,11 +203,6 @@ class AudioManager {
     this.tone('square', 1400, 600, 0.1, 0.1, 0.02);
   }
 
-  jingle() {
-    if (!this.ok('jingle', 120)) return;
-    [1568, 2093, 1568, 2349].forEach((f, i) => this.tone('sine', f, f, 0.09, 0.12, i * 0.07));
-  }
-
   steal() {
     if (!this.ok('steal', 200)) return;
     this.tone('triangle', 700, 260, 0.3, 0.2);

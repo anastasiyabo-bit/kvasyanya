@@ -29,7 +29,7 @@ describe('levels', () => {
       expect(c.duration).toBe(30);
       expect(c.minCatch).toBeLessThanOrEqual(32);
       expect(c.speedMax).toBeGreaterThan(c.speedMin);
-      expect(c.mosquitoChance + c.fatChance + c.goldChance).toBeLessThan(1);
+      expect(c.mix[0]).toMatchObject({ kind: 'fly', cap: Infinity });
       prev = c;
     }
   });

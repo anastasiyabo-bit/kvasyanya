@@ -26,7 +26,7 @@ export function dozeAnim(tex: InsectTexture) {
 
 export function preloadChars(scene: Phaser.Scene) {
   for (const [key, spec] of Object.entries(CHAR_SHEETS)) {
-    scene.load.spritesheet(key, `${spec.file}?v=5`, { frameWidth: spec.frameWidth, frameHeight: spec.frameHeight });
+    scene.load.spritesheet(key, `${spec.file}?v=6`, { frameWidth: spec.frameWidth, frameHeight: spec.frameHeight });
   }
 }
 

@@ -109,7 +109,7 @@ export class ResultScene extends Phaser.Scene {
     }
 
     let info = d.isRace ? `Квася ${d.caught} : ${d.rivalCaught} Клеша` : `Очки: ${d.score}    Поймано: ${d.caught}`;
-    if (d.isRace) info += `\nОтрыв: ${d.caught - d.rivalCaught}`;
+    if (d.isRace) info += `\nТы обогнала Клешу на ${d.caught - d.rivalCaught}!`;
     if (d.isSuper && d.superMult > 1) info += `\nБонус супер-уровня ×${d.superMult}`;
     r.add(txt(this, 0, -175, info, 36, '#2b1d16', { stroke: '#fff1cf', strokeW: 2 }));
 
@@ -174,7 +174,7 @@ export class ResultScene extends Phaser.Scene {
       this.root.add([img, name, cnt, purpose]);
     }
     this.root.add(
-      txt(this, 0, SLOT_Y + 162, 'Мошки — искорки. 3 звезды — блестяшка.\nСупер-уровень — сундучек.', 22, '#8a5a32', {
+      txt(this, 0, SLOT_Y + 162, 'Звёзды — искорки. 3 звезды — блестяшка.\nСупер-уровень — сундучек.', 22, '#8a5a32', {
         stroke: '#fff1cf',
         strokeW: 2,
       }),
@@ -420,7 +420,8 @@ export class ResultScene extends Phaser.Scene {
     const d = this.d;
     const r = this.root;
     r.add(panel(this, 0, d.canExtend ? 0 : -60, 640, d.canExtend ? 900 : 780));
-    r.add(txt(this, 0, -370, d.isRace ? 'Клеша победила…' : 'Квася не наелась…', 52, '#ffffff'));
+    const raceHead = d.caught === d.rivalCaught ? 'Ничья — Клеша победила' : 'Клеша победила…';
+    r.add(txt(this, 0, -370, d.isRace ? raceHead : 'Квася не наелась…', d.isRace ? 42 : 52, '#ffffff'));
     const sad = this.add.image(0, -175, frogTextureKey(Save.data.skin), 4).setOrigin(0.5, 0.55).setScale(0.38);
     r.add(sad);
     addHatOnFrogImage(this, r, sad, Save.data.hat);
@@ -457,8 +458,8 @@ export class ResultScene extends Phaser.Scene {
     const hint =
       d.reason === 'race'
         ? d.caught === d.rivalCaught
-          ? 'Ничья — победа за Клешей.\nОбгони её хоть на одну!'
-          : 'Перехватывай мошек, пока она целится!'
+          ? 'Ничья — победа за Клешей.\nПоймай хоть на одну больше!'
+          : 'Нужно поймать БОЛЬШЕ, чем Клеша.\nПерехватывай её мошек!'
         : close
           ? 'Не хватило совсем чуть-чуть!'
           : d.reason === 'min'

@@ -1,7 +1,17 @@
 import Phaser from 'phaser';
 import { INSECT_BOTTOM, INSECT_TOP, W } from '../config';
 import { INSECT_SHEETS, dozeAnim, flapAnim, type InsectTexture } from '../art/chars';
-import { FlightDeck, fitFlight, flapJitter, flightOffset, flightTilt, jitterFade, type FlightPattern } from '../data/flight';
+import {
+  FlightDeck,
+  approach,
+  fitFlight,
+  flapJitter,
+  flightOffset,
+  flightTilt,
+  jitterFade,
+  underCeiling,
+  type FlightPattern,
+} from '../data/flight';
 import { SLEEP_MS, WAKE_SPEED_MUL, fireflyGlow, fireflyLit, type InsectKind } from '../data/guests';
 import { bodyHitRadius, zoneAt, type BodyBox } from '../data/hit';
 import type { GuestKind } from '../data/schedule';
@@ -38,14 +48,21 @@ export const KINDS: Record<InsectKind, KindSpec> = {
   fat: base('fatfly', { scale: 0.72, points: 200, headSplit: 2, speedMul: 0.7, cheeks: [[-48, 14]] }),
   gold: base('goldfly', { points: 300, speedMul: 1.35 }),
   sleepy: base('sleepyfly'),
-  candy: base('fly', { guest: true }),
+  candy: base('fly', { speedMul: 0.85, guest: true }),
   wasp: base('wasp', { scale: 0.5, points: 100, headSplit: 12, speedMul: 0.85, cheeks: [[62, 52]], guest: true }),
   squeaker: base('squeaker', { scale: 0.56, points: 0, speedMul: 0.5, cheeks: [], guest: true }),
   thief: base('thief', { scale: 0.5, points: 150, headSplit: 10, speedMul: 1.55, cheeks: [[70, 26]], guest: true }),
   glutton: base('glutton', { scale: 0.74, points: 200, headSplit: 4, speedMul: 0.55, cheeks: [[56, 6]], guest: true }),
   firefly: base('firefly', { scale: 0.5, points: 150, speedMul: 0.9, cheeks: [[78, 46]], guest: true }),
-  caller: base('mosquito', { scale: 0.5, points: 150, headSplit: 9, speedMul: 0.95, cheeks: [[-52, 8]], guest: true }),
 };
+
+/** Where the candy fly holds its basket: under the body, in frame texture coordinates. */
+const BASKET_AT = { x: 22, y: 118 };
+const BASKET_SCALE = 0.95;
+/** Tap this close to the basket (display px) and it counts as a lick. */
+const BASKET_TAP_R = 64;
+/** Insects slide under a banner this fast, px/s. */
+const DUCK_SPEED = 700;
 
 export function isGuestKind(k: InsectKind): k is GuestKind {
   return KINDS[k].guest;
@@ -102,7 +119,12 @@ export class Insect extends Phaser.GameObjects.Container {
   private wakeSpeed = 0;
   private flashPhase = Math.random() * 1000;
   private candyImg: Phaser.GameObjects.Image | null = null;
-  private bell: Phaser.GameObjects.Image | null = null;
+  private carry: Phaser.GameObjects.Container | null = null;
+  private hint: Phaser.GameObjects.Text | null = null;
+  /** Px above the body centre the insect reaches (raised wings included). */
+  readonly reach: number;
+  /** While a banner is up, stay entirely below this y. */
+  ceiling: number | null = null;
   private glow: Phaser.GameObjects.Image | null = null;
   private brows: Phaser.GameObjects.Graphics | null = null;
   private shout: Phaser.GameObjects.Graphics | null = null;
@@ -131,7 +153,9 @@ export class Insect extends Phaser.GameObjects.Container {
     this.baseY = fit.baseY;
     this.y = this.baseY + flightOffset(this.flight, 0);
 
-    const body = INSECT_SHEETS[this.spec.tex].body;
+    const sheet = INSECT_SHEETS[this.spec.tex];
+    const body = sheet.body;
+    this.reach = (sheet.frameHeight / 2 + body.cy) * this.spec.scale;
     this.flipper = scene.add.container(0, 0);
     this.rigX = -body.cx;
     this.rigY = -body.cy;
@@ -155,15 +179,29 @@ export class Insect extends Phaser.GameObjects.Container {
 
   private dress(scene: Phaser.Scene) {
     switch (this.kind) {
-      case 'candy':
-        this.candyImg = scene.add.image(-34, -40, 'candy').setScale(0.8).setAngle(-14);
-        this.rig.add(this.candyImg);
+      case 'candy': {
+        // Candy sits behind the basket so only its top peeks over the rim.
+        this.carry = scene.add.container(BASKET_AT.x, BASKET_AT.y);
+        const basket = scene.add.image(0, 0, 'basket').setOrigin(0.5, 0.04).setScale(BASKET_SCALE);
+        // On top of the rim, so the candy reads at a glance.
+        this.candyImg = scene.add.image(2, 62, 'candy').setScale(0.82).setAngle(-12);
+        this.carry.add([basket, this.candyImg]);
+        this.rig.add(this.carry);
+        scene.tweens.add({ targets: this.carry, angle: { from: -9, to: 9 }, duration: 520, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
+        this.hint = scene.add
+          .text(0, -this.reach - 8, 'Лизни!', {
+            fontFamily: 'Rubik, Arial, sans-serif',
+            fontSize: '30px',
+            fontStyle: '900',
+            color: '#ffffff',
+            stroke: '#c2410c',
+            strokeThickness: 8,
+          })
+          .setOrigin(0.5, 1);
+        this.add(this.hint);
+        scene.tweens.add({ targets: this.hint, y: this.hint.y - 8, duration: 380, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
         break;
-      case 'caller':
-        this.bell = scene.add.image(24, 52, 'bell').setOrigin(0.5, 0.08).setScale(0.62);
-        this.rig.add(this.bell);
-        scene.tweens.add({ targets: this.bell, angle: { from: -22, to: 22 }, duration: 260, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
-        break;
+      }
       case 'glutton': {
         const badge = scene.add
           .text(-16, 92, '×3', {
@@ -248,7 +286,7 @@ export class Insect extends Phaser.GameObjects.Container {
     return !!this.candyImg?.visible;
   }
 
-  /** World position of the candy on the back, for the drop. */
+  /** World position of the candy in the basket, for the drop. */
   candyWorld() {
     if (!this.candyImg) return { x: this.x, y: this.y };
     const m = this.candyImg.getWorldTransformMatrix();
@@ -257,6 +295,17 @@ export class Insect extends Phaser.GameObjects.Container {
 
   dropCandy() {
     this.candyImg?.setVisible(false);
+    if (this.hint) this.scene.tweens.killTweensOf(this.hint);
+    this.hint?.destroy();
+    this.hint = null;
+  }
+
+  /** A tap on the full basket under the candy fly. */
+  basketHit(px: number, py: number): boolean {
+    if (!this.carry || !this.hasCandy) return false;
+    const m = this.carry.getWorldTransformMatrix();
+    const k = this.spec.scale;
+    return Math.hypot(px - m.tx, py - (m.ty + 70 * k)) <= BASKET_TAP_R;
   }
 
   /** Returns 'eat' if the tap is on the head half, 'lick' if on the abdomen. */
@@ -414,6 +463,8 @@ export class Insect extends Phaser.GameObjects.Container {
       }
     }
 
+    if (this.ceiling !== null) this.duck(this.ceiling, DUCK_SPEED * dt);
+
     if (this.state === 'flying') {
       this.x += this.vx * dt;
       this.y = this.baseY + flightOffset(this.flight, this.t);
@@ -441,9 +492,21 @@ export class Insect extends Phaser.GameObjects.Container {
     }
   }
 
+  /** Slide the flight line (or the hover spot) down so the whole insect stays under `ceiling`. */
+  private duck(ceiling: number, step: number) {
+    if (this.state === 'flying') {
+      const fit = underCeiling(this.baseY, this.flight.amp, this.reach, ceiling, this.band[1]);
+      if (fit.amp < this.flight.amp) this.flight = { ...this.flight, amp: approach(this.flight.amp, fit.amp, step) };
+      if (fit.baseY > this.baseY) this.baseY = approach(this.baseY, fit.baseY, step);
+    } else if (this.state === 'hover' || this.state === 'sleeping') {
+      const low = Math.min(this.band[1], ceiling + this.reach + 6);
+      if (this.hoverY < low) this.hoverY = approach(this.hoverY, low, step);
+    }
+  }
+
   destroy(fromScene?: boolean) {
     this.sprite?.off(Phaser.Animations.Events.ANIMATION_UPDATE, this.onFlapFrame, this);
-    if (this.scene) this.scene.tweens.killTweensOf([this.bell, this.zzz].filter(Boolean) as object[]);
+    if (this.scene) this.scene.tweens.killTweensOf([this.carry, this.hint, this.zzz].filter(Boolean) as object[]);
     super.destroy(fromScene);
   }
 }

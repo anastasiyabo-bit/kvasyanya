@@ -1,7 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { getLevelConfig, type LevelConfig } from '../src/data/levels';
 import { GUEST_ROTATION } from '../src/data/schedule';
-import { GUEST_CUTOFF_MS, guestMaySpawn, pickGuestTime, pickSpawn, quietLane, type SpawnState } from '../src/data/spawn';
+import { PAIR_KINDS, type FlyerKind } from '../src/data/species';
+import {
+  GUEST_CUTOFF_MS,
+  guestMaySpawn,
+  pickGuestTime,
+  pickSpawn,
+  quietLane,
+  rollMix,
+  type KindCounts,
+  type SpawnState,
+} from '../src/data/spawn';
 
 function seeded(seed: number) {
   let s = seed >>> 0;
@@ -11,24 +21,30 @@ function seeded(seed: number) {
   };
 }
 
+const idle = (over: Partial<SpawnState> = {}): SpawnState => ({
+  playMs: 0,
+  timeLeft: 30_000,
+  alive: 0,
+  guestDueAt: Infinity,
+  guestSpawned: false,
+  guestOnScreen: false,
+  counts: {},
+  ...over,
+});
+
 /** Plays a level's spawn ticks with random crowding and counts what came out. */
 function simulate(cfg: LevelConfig, seed: number) {
   const rand = seeded(seed);
   const dur = cfg.duration * 1000;
-  const st: SpawnState = {
-    playMs: 0,
-    timeLeft: dur,
-    alive: 0,
-    guestDueAt: cfg.guest ? pickGuestTime(cfg.guest, dur, rand) : Infinity,
-    guestSpawned: false,
-    guestOnScreen: false,
-  };
+  const counts: KindCounts = {};
+  const st = idle({ timeLeft: dur, guestDueAt: cfg.guest ? pickGuestTime(cfg.guest, dur, rand) : Infinity, counts });
   let guests = 0;
-  let sleepy = 0;
   let total = 0;
+  let pairs = 0;
   let maxGuestsOnScreen = 0;
   let guestLeavesAt = -1;
   const guestTimes: number[] = [];
+  const firstAt: Partial<Record<FlyerKind, number>> = {};
   let acc = 0;
   for (; st.playMs < dur; st.playMs += 16, st.timeLeft -= 16) {
     acc += 16;
@@ -49,9 +65,14 @@ function simulate(cfg: LevelConfig, seed: number) {
       st.guestOnScreen = true;
       guestLeavesAt = st.playMs + 4000;
       maxGuestsOnScreen = Math.max(maxGuestsOnScreen, 1);
-    } else if (p.sleepy) sleepy++;
+      continue;
+    }
+    const n = p.type === 'pair' ? 2 : 1;
+    if (p.type === 'pair') pairs++;
+    counts[p.kind] = (counts[p.kind] ?? 0) + n;
+    firstAt[p.kind] ??= st.playMs;
   }
-  return { guests, sleepy, total, guestTimes, maxGuestsOnScreen };
+  return { guests, total, pairs, counts, guestTimes, maxGuestsOnScreen, firstAt };
 }
 
 describe('spawning', () => {
@@ -68,26 +89,87 @@ describe('spawning', () => {
     }
   });
 
-  it('super, race, quiet hour and plain levels bring no guests', () => {
-    for (const level of [1, 2, 5, 6, 8, 10, 12, 19, 26, 40, 41]) {
+  it('super, quiet hour, plain levels and the first race bring no guests', () => {
+    for (const level of [1, 2, 5, 6, 8, 10, 12, 19, 26, 40]) {
       const cfg = getLevelConfig(level);
       expect(cfg.guest).toBeNull();
       expect(simulate(cfg, level).guests).toBe(0);
     }
   });
 
-  it('quiet hour fills about half of the spawns with sleepy flies; other levels have none', () => {
+  it('quiet hour fills about half of the spawns with sleepy flies', () => {
     const nap = simulate(getLevelConfig(19), 3);
-    expect(nap.sleepy / nap.total).toBeGreaterThan(0.3);
-    expect(nap.sleepy / nap.total).toBeLessThan(0.7);
-    for (const level of [7, 8, 10, 12]) expect(simulate(getLevelConfig(level), 5).sleepy).toBe(0);
+    const sleepy = nap.counts.sleepy ?? 0;
+    expect(sleepy / nap.total).toBeGreaterThan(0.3);
+    expect(sleepy / nap.total).toBeLessThan(0.7);
+  });
+
+  it('a freshly met kind flies once or twice, and shows up early enough to be seen', () => {
+    for (const [level, kind] of [
+      [2, 'gold'],
+      [3, 'gold'],
+      [4, 'sleepy'],
+      [6, 'mosquito'],
+      [7, 'fat'],
+    ] as const) {
+      for (let seed = 1; seed <= 10; seed++) {
+        const r = simulate(getLevelConfig(level), seed * 31 + level);
+        const n = r.counts[kind] ?? 0;
+        expect(n).toBeGreaterThanOrEqual(1);
+        expect(n).toBeLessThanOrEqual(2);
+        expect(r.firstAt[kind]!).toBeLessThan(getLevelConfig(level).duration * 1000 * 0.4);
+      }
+    }
+  });
+
+  it('every kind of the level really flies in it', () => {
+    for (let level = 1; level <= 60; level++) {
+      const cfg = getLevelConfig(level);
+      const r = simulate(cfg, level * 7);
+      for (const s of cfg.mix) expect(r.counts[s.kind] ?? 0).toBeGreaterThan(0);
+      for (const k of Object.keys(r.counts)) expect(cfg.mix.map((m) => m.kind)).toContain(k);
+    }
+  });
+
+  it('level 1 is only ordinary flies', () => {
+    for (let seed = 1; seed <= 10; seed++) {
+      expect(Object.keys(simulate(getLevelConfig(1), seed).counts)).toEqual(['fly']);
+    }
+  });
+
+  it('super levels keep pairs, with specials among them so it is not all grey', () => {
+    for (const level of [5, 10, 15, 20, 25, 30]) {
+      const r = simulate(getLevelConfig(level), level);
+      expect(r.pairs / r.total).toBeGreaterThan(0.5);
+      const special = Object.entries(r.counts).filter(([k]) => k !== 'fly');
+      expect(special.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('pairs are only of kinds that can fly as a pair', () => {
+    const cfg = getLevelConfig(20);
+    const rand = seeded(9);
+    for (let i = 0; i < 300; i++) {
+      const p = pickSpawn(cfg, idle({ playMs: 20_000 }), rand);
+      if (p.type === 'pair') expect(PAIR_KINDS).toContain(p.kind);
+    }
+  });
+
+  it('the roll respects caps', () => {
+    const slots = [
+      { kind: 'fly' as const, weight: 1, cap: Infinity, fresh: false },
+      { kind: 'gold' as const, weight: 100, cap: 2, fresh: true },
+    ];
+    expect(rollMix(slots, { gold: 1 }, 0.5)).toBe('gold');
+    expect(rollMix(slots, { gold: 2 }, 0.5)).toBe('fly');
+    expect(rollMix([slots[1]], { gold: 2 }, 0.5)).toBeNull();
   });
 
   it('the squeaker and every new guest refuse to appear in the last 5 seconds', () => {
     for (const guest of GUEST_ROTATION) {
       const cfg = { ...getLevelConfig(9), guest };
       for (const timeLeft of [GUEST_CUTOFF_MS, 4000, 1000, 0]) {
-        const st: SpawnState = { playMs: 26_000, timeLeft, alive: 0, guestDueAt: 0, guestSpawned: false, guestOnScreen: false };
+        const st = idle({ playMs: 26_000, timeLeft, guestDueAt: 0 });
         expect(guestMaySpawn(cfg, st)).toBe(false);
         expect(pickSpawn(cfg, st, () => 0.9).type).toBe('normal');
       }
@@ -100,7 +182,7 @@ describe('spawning', () => {
 
   it('a guest never pushes the screen past maxAlive and never joins another guest', () => {
     const cfg = getLevelConfig(9);
-    const base: SpawnState = { playMs: 20_000, timeLeft: 10_000, alive: 0, guestDueAt: 0, guestSpawned: false, guestOnScreen: false };
+    const base = idle({ playMs: 20_000, timeLeft: 10_000, guestDueAt: 0 });
     expect(guestMaySpawn(cfg, { ...base, alive: cfg.maxAlive })).toBe(false);
     expect(guestMaySpawn(cfg, { ...base, guestOnScreen: true })).toBe(false);
     expect(guestMaySpawn(cfg, { ...base, guestSpawned: true })).toBe(false);

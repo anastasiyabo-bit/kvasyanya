@@ -1,6 +1,6 @@
 /** Which event a level number gets. Pure, so the whole calendar is covered by tests. */
 
-export type GuestKind = 'candy' | 'wasp' | 'squeaker' | 'thief' | 'glutton' | 'firefly' | 'caller';
+export type GuestKind = 'candy' | 'wasp' | 'squeaker' | 'thief' | 'glutton' | 'firefly';
 export type LevelKind = 'super' | 'race' | 'nap' | 'guest' | 'normal';
 /** Something with a one-time rule line for the player. */
 export type Novelty = GuestKind | 'nap';
@@ -18,20 +18,24 @@ export const NAP_FIRST = 19;
 /** Gaps between quiet-hour levels before they dodge super and race numbers. */
 const NAP_STEPS = [7, 6, 8, 7] as const;
 
-/** First meetings, skipping super and race numbers. */
+/**
+ * First meetings, skipping super and race numbers. They come after the regular
+ * insects (gold, sleepy, mosquito, fat) have had their own levels.
+ */
 export const INTRO_LEVELS: readonly { level: number; what: Novelty }[] = [
-  { level: 4, what: 'candy' },
-  { level: 7, what: 'wasp' },
-  { level: 9, what: 'squeaker' },
-  { level: 11, what: 'thief' },
-  { level: 13, what: 'glutton' },
-  { level: 17, what: 'firefly' },
-  { level: 18, what: 'caller' },
+  { level: 9, what: 'candy' },
+  { level: 11, what: 'wasp' },
+  { level: 13, what: 'squeaker' },
+  { level: 17, what: 'thief' },
+  { level: 18, what: 'glutton' },
   { level: 19, what: 'nap' },
+  { level: 21, what: 'firefly' },
 ];
 const LAST_INTRO = INTRO_LEVELS[INTRO_LEVELS.length - 1].level;
 
-export const GUEST_ROTATION: readonly GuestKind[] = ['candy', 'wasp', 'squeaker', 'thief', 'glutton', 'firefly', 'caller'];
+export const GUEST_ROTATION: readonly GuestKind[] = ['candy', 'wasp', 'squeaker', 'thief', 'glutton', 'firefly'];
+/** Guests that make sense with Klesha around: none of them hits the counter of only one frog. */
+export const RACE_GUESTS: readonly GuestKind[] = ['candy', 'glutton', 'firefly', 'wasp'];
 
 export function isSuperLevel(level: number): boolean {
   return level > 0 && level % 5 === 0;
@@ -67,9 +71,22 @@ export function isNapLevel(level: number): boolean {
   return napCache.includes(level);
 }
 
-/** Free = no super, race or quiet hour. Guests live only on free levels. */
+/** Free = no super, race or quiet hour. Guests live only on free levels and races. */
 export function isFreeLevel(level: number): boolean {
   return level >= 1 && !taken(level) && !isNapLevel(level);
+}
+
+/** Guest already introduced before this level. */
+export function guestKnownBy(guest: GuestKind, level: number): boolean {
+  const intro = INTRO_LEVELS.find((i) => i.what === guest);
+  return !!intro && intro.level < level;
+}
+
+/** One guest a race may bring: rotates through the race-friendly ones the player has met. */
+export function raceGuest(level: number): GuestKind | null {
+  const known = RACE_GUESTS.filter((g) => guestKnownBy(g, level));
+  if (!known.length) return null;
+  return known[Math.floor(level / RACE_EVERY) % known.length];
 }
 
 /** Ordinal of a free level after the intro run, or -1. */
@@ -89,7 +106,7 @@ export function levelPlan(level: number): LevelPlan {
   const n = Math.max(1, Math.floor(level));
   const intro = INTRO_LEVELS.find((i) => i.level === n)?.what ?? null;
   if (isSuperLevel(n)) return { level: n, kind: 'super', guest: null, intro: null };
-  if (isRaceLevel(n)) return { level: n, kind: 'race', guest: null, intro: null };
+  if (isRaceLevel(n)) return { level: n, kind: 'race', guest: raceGuest(n), intro: null };
   if (isNapLevel(n)) return { level: n, kind: 'nap', guest: null, intro };
   if (n <= LAST_INTRO) {
     if (intro && intro !== 'nap') return { level: n, kind: 'guest', guest: intro, intro };
@@ -97,8 +114,8 @@ export function levelPlan(level: number): LevelPlan {
   }
   const ord = freeOrdinal(n);
   // Every second free level hosts a guest, so plain levels sit between them.
-  if (ord >= 0 && ord % 2 === 0) {
-    return { level: n, kind: 'guest', guest: GUEST_ROTATION[(ord / 2) % GUEST_ROTATION.length], intro: null };
+  if (ord >= 0 && ord % 2 === 1) {
+    return { level: n, kind: 'guest', guest: GUEST_ROTATION[((ord - 1) / 2) % GUEST_ROTATION.length], intro: null };
   }
   return { level: n, kind: 'normal', guest: null, intro: null };
 }
