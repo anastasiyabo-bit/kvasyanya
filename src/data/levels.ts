@@ -27,6 +27,12 @@ export interface LevelConfig {
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
+/**
+ * Star scores as multiples of «quota × 100». Combos and gold pay more than 100 a catch,
+ * so the quota alone lands around 1.5×: bronze, not silver.
+ */
+export const STAR_STEPS = [1, 1.9, 2.7] as const;
+
 export function getLevelConfig(level: number): LevelConfig {
   const n = Math.max(1, Math.floor(level));
   const plan = levelPlan(n);
@@ -43,7 +49,7 @@ export function getLevelConfig(level: number): LevelConfig {
   const speedMax = speedMin + clamp(40 + n * 4, 40, 120);
 
   const s1 = minCatch * 100;
-  const starScores: [number, number, number] = [s1, Math.round(s1 * 1.6), Math.round(s1 * 2.2)];
+  const starScores = STAR_STEPS.map((k) => Math.round(s1 * k)) as [number, number, number];
 
   return {
     level: n,
@@ -59,7 +65,7 @@ export function getLevelConfig(level: number): LevelConfig {
     maxAlive,
     speedMin,
     speedMax,
-    mix: levelMix(n, plan.kind, plan.guest !== null),
+    mix: levelMix(n),
     starScores,
     superThreshold: Math.round(s1 * 1.15),
   };
@@ -88,14 +94,24 @@ export function evaluateRace(caught: number, rivalCaught: number): LevelOutcome 
   return { won: true, stars, reason: 'ok' };
 }
 
+/** Stars earned so far. None until the quota (and on a super level the threshold) is met. */
+export function starsFor(
+  cfg: Pick<LevelConfig, 'minCatch' | 'isSuper' | 'superThreshold' | 'starScores'>,
+  score: number,
+  caught: number,
+): 0 | 1 | 2 | 3 {
+  if (caught < cfg.minCatch) return 0;
+  if (cfg.isSuper && score < cfg.superThreshold) return 0;
+  if (score >= cfg.starScores[2]) return 3;
+  if (score >= cfg.starScores[1]) return 2;
+  return 1;
+}
+
 export function evaluateLevel(cfg: LevelConfig, score: number, caught: number, rivalCaught = 0): LevelOutcome {
   if (cfg.isRace) return evaluateRace(caught, rivalCaught);
   if (caught < cfg.minCatch) return { won: false, stars: 0, reason: 'min' };
   if (cfg.isSuper && score < cfg.superThreshold) return { won: false, stars: 0, reason: 'threshold' };
-  let stars: 1 | 2 | 3 = 1;
-  if (score >= cfg.starScores[1]) stars = 2;
-  if (score >= cfg.starScores[2]) stars = 3;
-  return { won: true, stars, reason: 'ok' };
+  return { won: true, stars: starsFor(cfg, score, caught) as 1 | 2 | 3, reason: 'ok' };
 }
 
 export function superMultiplier(cfg: LevelConfig, score: number): number {

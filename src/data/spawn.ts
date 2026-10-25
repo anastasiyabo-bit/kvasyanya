@@ -2,13 +2,13 @@
 
 import type { LevelConfig } from './levels';
 import type { GuestKind } from './schedule';
-import { PAIR_KINDS, type FlyerKind, type MixSlot } from './species';
+import { NAP_SLEEPY_SHARE, PAIR_KINDS, type FlyerKind, type MixSlot } from './species';
 
+export { NAP_SLEEPY_SHARE } from './species';
 export type Rand = () => number;
 
 /** No new guest when this little time is left. One already flying finishes on its own. */
 export const GUEST_CUTOFF_MS = 5000;
-export const NAP_SLEEPY_SHARE = 0.5;
 /** A freshly met kind not seen by this share of the level is sent in right away. */
 export const FRESH_DUE_SHARE = 0.25;
 /** Any kind of the level not seen by this share of the level is sent in right away. */

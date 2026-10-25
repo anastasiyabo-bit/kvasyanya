@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { comboMultiplier, evaluateLevel, fatTier, getLevelConfig, isSuperLevel, superMultiplier } from '../src/data/levels';
+import { comboMultiplier, evaluateLevel, fatTier, getLevelConfig, isSuperLevel, starsFor, superMultiplier } from '../src/data/levels';
 
 const fatTierMaxEaten = (minCatch: number) => Math.max(3, Math.round(minCatch * 0.45)) * 4;
 
@@ -54,6 +54,22 @@ describe('levels', () => {
     expect(evaluateLevel(c, c.starScores[0], c.minCatch).stars).toBe(1);
     expect(evaluateLevel(c, c.starScores[1], c.minCatch).stars).toBe(2);
     expect(evaluateLevel(c, c.starScores[2], c.minCatch).stars).toBe(3);
+  });
+
+  it('no star lights before the quota, however many points (level 29 bug)', () => {
+    for (const lv of [2, 29, 47]) {
+      const c = getLevelConfig(lv);
+      expect(starsFor(c, c.starScores[2] * 2, c.minCatch - 1)).toBe(0);
+      expect(starsFor(c, c.starScores[0], c.minCatch)).toBe(1);
+    }
+  });
+
+  it('the quota with steady combos is bronze, silver needs real extra work', () => {
+    const c = getLevelConfig(29);
+    // Every catch at a ×1.5 combo: quota alone stays bronze.
+    expect(starsFor(c, c.minCatch * 150, c.minCatch)).toBe(1);
+    expect(starsFor(c, Math.round(c.minCatch * 1.3) * 150, Math.round(c.minCatch * 1.3))).toBe(2);
+    expect(starsFor(c, c.minCatch * 2 * 150, c.minCatch * 2)).toBe(3);
   });
 
   it('evaluates super level threshold', () => {

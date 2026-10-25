@@ -9,6 +9,7 @@ import {
   evaluateLevel,
   fatTier,
   getLevelConfig,
+  starsFor,
   superMultiplier,
   type LevelConfig,
 } from '../data/levels';
@@ -120,6 +121,7 @@ export class GameScene extends Phaser.Scene {
   private numbUntil = 0;
   private chewUntil = 0;
   private busyHintAt = -9999;
+  private quotaHinted = false;
   private candies: CandyDrop[] = [];
   private kindCounts: KindCounts = {};
   /** Bottom edge of a rule banner on screen; insects stay below it. */
@@ -191,6 +193,7 @@ export class GameScene extends Phaser.Scene {
     this.numbUntil = 0;
     this.chewUntil = 0;
     this.busyHintAt = -9999;
+    this.quotaHinted = false;
     this.candies = [];
     this.kindCounts = {};
     this.ruleCeiling = null;
@@ -337,14 +340,9 @@ export class GameScene extends Phaser.Scene {
     const starKeys = ['star_bronze', 'star_silver', 'star_gold'] as const;
     const starScales = [0.4, 0.46, 0.62];
     const marks: { v: number; key: (typeof starKeys)[number]; scale: number }[] = [];
-    if (sup) {
-      this.barMax = Math.round(this.cfg.superThreshold * 1.6);
-      const vals = [this.cfg.superThreshold, Math.round(this.cfg.superThreshold * 1.3), this.barMax];
-      vals.forEach((v, i) => marks.push({ v, key: starKeys[i], scale: starScales[i] }));
-    } else {
-      this.barMax = this.cfg.starScores[2];
-      this.cfg.starScores.forEach((v, i) => marks.push({ v, key: starKeys[i], scale: starScales[i] }));
-    }
+    this.barMax = this.cfg.starScores[2];
+    const vals = [sup ? this.cfg.superThreshold : this.cfg.starScores[0], this.cfg.starScores[1], this.cfg.starScores[2]];
+    vals.forEach((v, i) => marks.push({ v, key: starKeys[i], scale: starScales[i] }));
     for (const m of marks) {
       const mx = bx + (bw * m.v) / this.barMax;
       const img = this.add
@@ -364,7 +362,11 @@ export class GameScene extends Phaser.Scene {
     const bx = 70;
     const bw = 580;
     const by = 248;
-    const k = Phaser.Math.Clamp(this.shownScore / this.barMax, 0, 1);
+    // Until the quota is met the bar waits just short of the bronze star.
+    const quota = this.caught >= this.cfg.minCatch;
+    const first = this.starMarks[0]?.getData('v') as number | undefined;
+    const shown = quota || first === undefined ? this.shownScore : Math.min(this.shownScore, first * 0.94);
+    const k = Phaser.Math.Clamp(shown / this.barMax, 0, 1);
     const g = this.barFill;
     g.clear();
     if (k <= 0) return;
@@ -373,8 +375,10 @@ export class GameScene extends Phaser.Scene {
     g.fillRoundedRect(bx, by - 13, w, 26, 13);
     g.fillStyle(0xffffff, 0.35);
     g.fillRoundedRect(bx + 8, by - 9, Math.max(0, w - 16), 7, 3);
+    if (!quota && first !== undefined && this.shownScore >= first) this.quotaHint();
+    const lit = starsFor(this.cfg, this.shownScore, this.caught);
     for (const m of this.starMarks) {
-      if (m.getData('lit') || this.shownScore < m.getData('v')) continue;
+      if (m.getData('lit') || this.starMarks.indexOf(m) >= lit) continue;
       m.setData('lit', true);
       const base = (m.getData('baseScale') as number) ?? m.scale;
       this.tweens.add({ targets: m, alpha: 1, duration: 120 });
@@ -382,6 +386,18 @@ export class GameScene extends Phaser.Scene {
       Sound.star(Math.min(2, this.starMarks.indexOf(m)));
       starBurst(this, m.x, m.y, 14);
     }
+  }
+
+  /** Points are there, catches are not: say once what the star still needs. */
+  private quotaHint() {
+    if (this.quotaHinted || this.state !== 'playing') return;
+    this.quotaHinted = true;
+    const left = this.cfg.minCatch - this.caught;
+    const tip = this.pill(360, 300, 470, 56, 0xfff1a8).setDepth(73);
+    tip.add(txt(this, 0, 0, `Для звезды поймай ещё ${left}!`, 30, '#2b1d16', { stroke: '#fff6dc', strokeW: 2 }));
+    popIn(this, tip);
+    this.tweens.add({ targets: tip, alpha: 0, delay: 1700, duration: 300, onComplete: () => tip.destroy() });
+    this.tweens.add({ targets: this.catchText, scale: { from: 1.5, to: 1 }, duration: 320, ease: 'Back.Out' });
   }
 
   private fmtTime(ms: number) {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { getLevelConfig } from '../src/data/levels';
-import { KIND_UNLOCK, NEW_KIND_CAP, PAIR_KINDS, levelMix } from '../src/data/species';
+import { KIND_UNLOCK, NEW_KIND_CAP, PAIR_KINDS, kindShares, levelMix } from '../src/data/species';
 
 const kinds = (n: number) => getLevelConfig(n).mix.map((m) => m.kind);
 /** Different insects a level shows, its guest included. */
@@ -34,10 +34,10 @@ describe('species curve', () => {
   it('a new kind starts rare and gets more common later', () => {
     for (const k of ['gold', 'sleepy', 'mosquito', 'fat'] as const) {
       const at = KIND_UNLOCK[k];
-      const first = levelMix(at, 'normal', false).find((m) => m.kind === k)!;
+      const first = levelMix(at).find((m) => m.kind === k)!;
       expect(first.cap).toBe(NEW_KIND_CAP);
       let grown = null;
-      for (let n = at + 15; n < at + 60 && !grown; n++) grown = levelMix(n, 'normal', false).find((m) => m.kind === k);
+      for (let n = at + 15; n < at + 60 && !grown; n++) grown = levelMix(n).find((m) => m.kind === k);
       expect(grown).toBeTruthy();
       expect(grown!.cap).toBeGreaterThan(NEW_KIND_CAP);
       expect(grown!.weight).toBeGreaterThanOrEqual(first.weight);
@@ -67,6 +67,27 @@ describe('species curve', () => {
     for (let n = 10; n <= 120; n += 5) {
       const pairable = getLevelConfig(n).mix.filter((m) => PAIR_KINDS.includes(m.kind) && m.kind !== 'fly');
       expect(pairable.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('over the levels the sleepy and the fat fly are met about equally often, quiet hours included', () => {
+    for (const upTo of [40, 80, 160]) {
+      let sleepy = 0;
+      let fat = 0;
+      let sleepyLevels = 0;
+      let fatLevels = 0;
+      for (let n = KIND_UNLOCK.fat; n <= upTo; n++) {
+        const cfg = getLevelConfig(n);
+        const s = kindShares(cfg.mix, cfg.kind);
+        sleepy += s.sleepy ?? 0;
+        fat += s.fat ?? 0;
+        if (s.sleepy) sleepyLevels++;
+        if (s.fat) fatLevels++;
+      }
+      expect(sleepy / fat).toBeGreaterThan(0.85);
+      expect(sleepy / fat).toBeLessThan(1.15);
+      // Quiet hours are full of sleepy flies, so plain levels give the fat fly more room.
+      expect(fatLevels).toBeGreaterThan(sleepyLevels);
     }
   });
 
