@@ -22,6 +22,11 @@ class AudioManager {
 
   /** Must be called from a user gesture (first tap). Safe to call repeatedly. */
   unlock() {
+    // A real tap beats a stale blur/hidden flag from mobile browsers and in-app WebViews.
+    if (!document.hidden) {
+      this.suspendedBy.delete('blur');
+      this.suspendedBy.delete('hidden');
+    }
     if (!this.ctx) {
       const Ctor = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       if (!Ctor) return;

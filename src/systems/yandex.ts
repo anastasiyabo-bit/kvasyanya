@@ -55,7 +55,7 @@ class YandexBridge {
   async init(): Promise<void> {
     try {
       if (!window.YaGames) {
-        if (import.meta.env.DEV) {
+        if (import.meta.env.DEV || !onYandexHost()) {
           this.captureLang(undefined);
           return;
         }
@@ -247,6 +247,10 @@ class YandexBridge {
       setTimeout(finish, 120_000);
     });
   }
+}
+
+function onYandexHost() {
+  return /yandex\.(net|ru|com|by|kz|uz)|yango|playhop/i.test(location.hostname);
 }
 
 function waitFor(pred: () => boolean, ms: number): Promise<void> {

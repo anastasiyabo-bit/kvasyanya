@@ -39,8 +39,14 @@ function throttledRemoteSave() {
 }
 
 async function start() {
+  // Bind before the SDK wait so the first tap on the boot screen already unlocks WebAudio.
+  const unlock = () => Sound.unlock();
+  window.addEventListener('pointerdown', unlock, { passive: true });
+  window.addEventListener('keydown', unlock);
+
   if (import.meta.env.DEV) await import('./devtools');
   Save.loadLocal();
+  if (Save.data.music) Sound.startMusic();
   await Promise.all([loadFonts(), Ya.init()]);
   const remote = await Ya.loadPlayerData();
   if (remote) Save.adoptRemote(remote);
@@ -68,10 +74,6 @@ async function start() {
     w.__historyBack = () => handleHistoryBack(game);
   }
 
-  const unlock = () => Sound.unlock();
-  window.addEventListener('pointerdown', unlock, { passive: true });
-  window.addEventListener('keydown', unlock);
-
   const platformPause = (reason: string) => {
     Sound.suspend(reason);
     game.events.emit('platform-pause');
@@ -84,8 +86,8 @@ async function start() {
     if (document.hidden) platformPause('hidden');
     else platformResume('hidden');
   });
-  window.addEventListener('blur', () => platformPause('blur'));
-  window.addEventListener('focus', () => platformResume('blur'));
+  // Do not pause on window blur: mobile Safari / Telegram WebView fire blur while
+  // the page is still visible, and then never send focus — music stays muted.
   Ya.onPause(() => platformPause('platform'));
   Ya.onResume(() => platformResume('platform'));
   Ya.onHistoryBack(() => handleHistoryBack(game));
