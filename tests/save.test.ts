@@ -13,10 +13,10 @@ describe('save', () => {
       level: 7.8,
       inventory: [4, 1, 0],
       hatsUnlocked: 2,
-      beadsUnlocked: 1,
+      artsUnlocked: 1,
       skinsUnlocked: 1,
       hat: 5,
-      bead: 0,
+      art: 0,
       skin: 1,
       music: false,
       bestScore: { '3': 1200, x: 'no' },
@@ -25,7 +25,7 @@ describe('save', () => {
     expect(s.inventory).toEqual([4, 1, 0]);
     expect(s.hatsUnlocked).toBe(2);
     expect(s.hat).toBe(1);
-    expect(s.bead).toBe(0);
+    expect(s.art).toBe(0);
     expect(s.skin).toBe(1);
     expect(s.music).toBe(false);
     expect(s.bestScore).toEqual({ '3': 1200 });
@@ -35,10 +35,16 @@ describe('save', () => {
     const s = sanitize({ inventory: [1, 2, 3, 4], hatsUnlocked: 2, hat: 5 });
     expect(s.hatsUnlocked).toBe(2);
     expect(s.skinsUnlocked).toBe(0);
-    expect(s.beadsUnlocked).toBe(1);
+    expect(s.artsUnlocked).toBe(1);
     expect(s.hat).toBe(1);
-    expect(s.bead).toBe(-1);
+    expect(s.art).toBe(-1);
     expect(s.inventory[2]).toBe(0);
+  });
+
+  it('reads the necklace fields of the previous version as drawings', () => {
+    const s = sanitize({ inventory: [0, 2, 0], hatsUnlocked: 3, beadsUnlocked: 2, bead: 1 });
+    expect(s.artsUnlocked).toBe(2);
+    expect(s.art).toBe(1);
   });
 
   it('merge prefers more progress', () => {

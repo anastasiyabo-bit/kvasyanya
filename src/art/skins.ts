@@ -54,9 +54,9 @@ function mixRgb(a: [number, number, number], b: [number, number, number], t: num
   return [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
 }
 
-function shadeOf(base: [number, number, number], l: number): [number, number, number] {
+function shadeOf(base: [number, number, number], l: number, shadow?: [number, number, number]): [number, number, number] {
   const t = Phaser.Math.Clamp((0.66 - l) / 0.4, 0, 1);
-  return mixRgb(base, [base[0] * 0.64, base[1] * 0.64, base[2] * 0.64], t * 0.68);
+  return mixRgb(base, shadow ?? [base[0] * 0.64, base[1] * 0.64, base[2] * 0.64], t * 0.68);
 }
 
 function smoot01(v: number) {
@@ -200,7 +200,7 @@ function recolor(ctx: CanvasRenderingContext2D, skin: FrogSkin, fw: number, fh: 
       fill = skin.body;
       if (skin.flank && wFlank > 0) fill = mixRgb(fill, skin.flank, wFlank);
       if (skin.haunch && wHaunch > 0) fill = mixRgb(fill, skin.haunch, wHaunch);
-      fill = shadeOf(fill, l);
+      fill = shadeOf(fill, l, skin.shadow);
       const wantSpot =
         (skin.spots === 'flank' && wFlank > 0.35 && nativeSpot) || (skin.spots === 'body' && nativeSpot);
       if (wantSpot) fill = mixRgb(fill, skin.spot, 0.9);

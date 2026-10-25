@@ -1,13 +1,13 @@
-import { BEAD_COUNT, HAT_UNLOCK_COUNT, legacyPrizeSplit, SKIN_COUNT } from './cosmetics';
+import { ART_COUNT, HAT_UNLOCK_COUNT, legacyPrizeSplit, SKIN_COUNT } from './cosmetics';
 import { sparksLabel } from './phrases';
 
 export const TIER_NAMES = ['Искорки', 'Блестяшки', 'Сундучек'] as const;
-export const TIER_FOR = ['шапочки', 'бусы', 'окрасы'] as const;
+export const TIER_FOR = ['шапочки', 'рисунки', 'окрасы'] as const;
 
 /** Caught flies fill this bar. A full bar opens the next hat. */
 export const HAT_COST = 10;
-/** Three-star clears drop one glitter. A full bar strings the next necklace. */
-export const BEAD_COST = 3;
+/** Three-star clears drop one glitter. A full bar opens the next belly drawing. */
+export const ART_COST = 3;
 
 /** Progress still waiting to open the next item: [sparks, glitters, chests]. */
 export type Inventory = [number, number, number];
@@ -20,11 +20,11 @@ export interface RewardGain {
 
 export interface Owned {
   hats: number;
-  beads: number;
+  arts: number;
   skins: number;
 }
 
-export type UnlockDrop = { kind: 'hat' | 'bead' | 'skin'; id: number };
+export type UnlockDrop = { kind: 'hat' | 'art' | 'skin'; id: number };
 
 export interface RewardInput {
   stars: number;
@@ -77,7 +77,7 @@ export function applyRewards(
 ): { inv: Inventory; owned: Owned; drops: UnlockDrop[] } {
   const next: Owned = {
     hats: take(owned.hats),
-    beads: take(owned.beads),
+    arts: take(owned.arts),
     skins: take(owned.skins),
   };
   const drops: UnlockDrop[] = [];
@@ -94,14 +94,14 @@ export function applyRewards(
   }
 
   let glitters = take(start[1]) + take(gain.glitters);
-  if (next.beads >= BEAD_COUNT) glitters = 0;
+  if (next.arts >= ART_COUNT) glitters = 0;
   else {
-    while (glitters >= BEAD_COST && next.beads < BEAD_COUNT) {
-      glitters -= BEAD_COST;
-      drops.push({ kind: 'bead', id: next.beads });
-      next.beads += 1;
+    while (glitters >= ART_COST && next.arts < ART_COUNT) {
+      glitters -= ART_COST;
+      drops.push({ kind: 'art', id: next.arts });
+      next.arts += 1;
     }
-    if (next.beads >= BEAD_COUNT) glitters = 0;
+    if (next.arts >= ART_COUNT) glitters = 0;
   }
 
   let chests = take(start[2]) + take(gain.chests);
@@ -126,5 +126,5 @@ export function migrateLegacy(
   const split = legacyPrizeSplit(prizes);
   const sparks = take(inv[0]) + take(inv[3]) * Math.floor(HAT_COST / 5);
   const glitters = take(inv[1]) + take(inv[2]);
-  return applyRewards([0, 0, 0], { sparks, glitters, chests: 0 }, { hats: split.hats, beads: 0, skins: split.skins });
+  return applyRewards([0, 0, 0], { sparks, glitters, chests: 0 }, { hats: split.hats, arts: 0, skins: split.skins });
 }

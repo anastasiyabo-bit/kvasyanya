@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { CHAR_SHEETS } from '../art/chars';
-import { BEAD_COUNT } from '../data/cosmetics';
+import { ART_COUNT } from '../data/cosmetics';
 import { frogBlinkAnim, frogEatAnim, frogIdleAnim, frogOhAnim, frogTextureKey, skinById } from '../art/skins';
 import { C } from '../config';
 import { bubble } from '../ui/ui';
@@ -21,9 +21,28 @@ const HAT_FIT: { scale: number; y: number; originY?: number }[] = [
   { scale: 1.14, y: -448 },
   { scale: 1.22, y: -416 },
   { scale: 1.0, y: -472 },
+  { scale: 1.2, y: -452 },
+  { scale: 1.15, y: -455 },
+  { scale: 1.12, y: -450 },
+  { scale: 1.12, y: -450 },
+  { scale: 1.15, y: -450 },
+  { scale: 1.3, y: -372 },
+  { scale: 1.45, y: -384 },
+  { scale: 1.15, y: -455 },
+  { scale: 1.35, y: -445 },
+  { scale: 1.1, y: -455 },
+  { scale: 0.95, y: -468 },
+  { scale: 1.2, y: -452 },
+  { scale: 1.0, y: -455 },
+  { scale: 1.1, y: -450 },
+  { scale: 1.1, y: -455 },
+  { scale: 1.15, y: -452 },
+  { scale: 1.25, y: -450 },
+  { scale: 1.1, y: -458 },
+  { scale: 1.0, y: -462 },
 ];
-/** Bow, chef, nurse, beanie, wreath sit behind the frog so they hug the head. */
-const HAT_BEHIND = new Set([1, 4, 7, 8, 9]);
+/** Bow, chef, nurse, beanie, wreath, bunny ears and unicorn sit behind the frog so they hug the head. */
+const HAT_BEHIND = new Set([1, 4, 7, 8, 9, 16, 17]);
 const TONGUE_OUT_MS = 85;
 const TONGUE_BACK_MS = 130;
 const DISPLAY_W = CHAR_SHEETS.frog_char.frameWidth * FROG_SCALE;
@@ -49,9 +68,27 @@ const FRAME_EYES: ([number, number][] | null)[] = [
   ],
 ];
 const PUPIL_RANGE = 18;
-/** Necklace sits on the upper belly, under the mouth. Texture space, origin at the feet. */
-export const BEAD_Y = -214;
-export const BEAD_SCALE = 0.62;
+/** Centre of the light belly patch per frog frame. Texture space, origin at the feet. */
+const BELLY: [number, number][] = [
+  [-6, -138],
+  [-4, -140],
+  [-7, -138],
+  [0, -135],
+  [-7, -138],
+];
+/** Box the drawing is fitted into on the belly, in texture pixels. */
+const ART_BOX_W = 150;
+const ART_BOX_H = 116;
+
+/** Scale that fits a texture inside a w x h box. */
+export function fitScale(img: Phaser.GameObjects.Image, w: number, h: number) {
+  return Math.min(w / img.width, h / img.height);
+}
+
+function bellyAt(frame: unknown): [number, number] {
+  const i = Number(frame);
+  return BELLY[Number.isInteger(i) && i >= 0 && i < BELLY.length ? i : 0];
+}
 
 /** Place a shop hat on a static frog image (pause / result portraits). */
 export function addHatOnFrogImage(
@@ -73,23 +110,26 @@ export function addHatOnFrogImage(
   return hat;
 }
 
-/** Place the equipped necklace on a static frog image (pause / result portraits). */
-export function addBeadsOnFrogImage(
+/** Place the equipped belly drawing on a static frog image (pause / result portraits). */
+export function addArtOnFrogImage(
   scene: Phaser.Scene,
   parent: Phaser.GameObjects.Container,
   frogImg: Phaser.GameObjects.Image,
-  beadId: number,
+  artId: number,
 ) {
-  if (beadId < 0) return null;
+  if (artId < 0 || artId >= ART_COUNT) return null;
   const fh = CHAR_SHEETS.frog_char.frameHeight;
-  const bead = scene.add
-    .image(frogImg.x, frogImg.y + (fh * (1 - frogImg.originY) + BEAD_Y) * frogImg.scaleY, `bead${beadId}`)
-    .setOrigin(0.5, 0.5)
-    .setScale(BEAD_SCALE * frogImg.scaleY);
+  const [bx, by] = bellyAt(frogImg.frame.name);
+  const art = scene.add.image(
+    frogImg.x + bx * frogImg.scaleX,
+    frogImg.y + (fh * (1 - frogImg.originY) + by) * frogImg.scaleY,
+    `art${artId}`,
+  );
+  art.setScale(fitScale(art, ART_BOX_W, ART_BOX_H) * frogImg.scaleY);
   const idx = parent.getIndex(frogImg);
-  if (idx >= 0) parent.addAt(bead, idx + 1);
-  else parent.add(bead);
-  return bead;
+  if (idx >= 0) parent.addAt(art, idx + 1);
+  else parent.add(art);
+  return art;
 }
 
 interface Strike {
@@ -109,7 +149,7 @@ export class Frog extends Phaser.GameObjects.Container {
   private sockets: Phaser.GameObjects.Container[] = [];
   private pupils: Phaser.GameObjects.Image[] = [];
   private hatImg: Phaser.GameObjects.Image;
-  private beadImg: Phaser.GameObjects.Image;
+  private artImg: Phaser.GameObjects.Image;
   private tongue: Phaser.GameObjects.Graphics;
   private strikes: Strike[] = [];
   private lookX = 0;
@@ -131,12 +171,12 @@ export class Frog extends Phaser.GameObjects.Container {
     const shadow = scene.add.ellipse(0, 2, 280, 34, 0x000000, 0.18);
     this.bodyWrap = scene.add.container(0, 0);
     this.hatImg = scene.add.image(0, HAT_FIT[0].y, 'hat0').setOrigin(0.5, 0.96).setScale(HAT_FIT[0].scale).setVisible(false);
-    this.beadImg = scene.add.image(0, BEAD_Y, 'bead0').setOrigin(0.5, 0.5).setScale(BEAD_SCALE).setVisible(false);
+    this.artImg = scene.add.image(BELLY[0][0], BELLY[0][1], 'art0').setVisible(false);
     this.sprite = scene.add.sprite(0, 0, 'frog_char', 0).setOrigin(0.5, 1);
     this.sprite.play('frog-idle');
     this.bodyWrap.add(this.hatImg);
     this.bodyWrap.add(this.sprite);
-    this.bodyWrap.add(this.beadImg);
+    this.bodyWrap.add(this.artImg);
     const rest = FRAME_EYES[0]!;
     for (const [ex, ey] of rest) {
       const socket = scene.add.container(ex, ey);
@@ -175,11 +215,11 @@ export class Frog extends Phaser.GameObjects.Container {
     return Math.abs(x - this.x) < w / 2 && y < this.y + 10 && y > this.y - h;
   }
 
-  /** Equips the player's chosen colour, hat and necklace. */
-  dress(hat: number, skin: number, bead = -1) {
+  /** Equips the player's chosen colour, hat and belly drawing. */
+  dress(hat: number, skin: number, art = -1) {
     this.setSkin(skin);
     this.setHat(hat);
-    this.setBead(bead);
+    this.setArt(art);
   }
 
   setSkin(id: number) {
@@ -210,23 +250,26 @@ export class Frog extends Phaser.GameObjects.Container {
       .setVisible(true);
     if (HAT_BEHIND.has(i)) this.bodyWrap.sendToBack(this.hatImg);
     else this.bodyWrap.bringToTop(this.hatImg);
-    this.placeBead();
+    this.placeArt();
   }
 
-  setBead(i: number) {
-    if (i < 0 || i >= BEAD_COUNT) {
-      this.beadImg.setVisible(false);
+  setArt(i: number) {
+    if (i < 0 || i >= ART_COUNT) {
+      this.artImg.setVisible(false);
       return;
     }
-    this.beadImg.setTexture(`bead${i}`).setPosition(0, BEAD_Y).setScale(BEAD_SCALE).setVisible(true);
-    this.placeBead();
+    this.artImg.setTexture(`art${i}`).setVisible(true);
+    this.artImg.setScale(fitScale(this.artImg, ART_BOX_W, ART_BOX_H));
+    this.placeArt();
   }
 
-  /** Keeps the necklace on the belly, above the body and under the eyes. */
-  private placeBead() {
-    if (!this.beadImg.visible) return;
+  /** Keeps the drawing right above the body so hats behind the frog stay behind it too. */
+  private placeArt() {
+    if (!this.artImg.visible) return;
     const at = this.bodyWrap.getIndex(this.sprite);
-    if (at >= 0) this.bodyWrap.moveTo(this.beadImg, at + 1);
+    if (at >= 0) this.bodyWrap.moveTo(this.artImg, at + 1);
+    const [bx, by] = bellyAt(this.sprite.frame.name);
+    this.artImg.setPosition(bx, by);
   }
 
   lookAt(x: number, y: number) {
@@ -332,6 +375,7 @@ export class Frog extends Phaser.GameObjects.Container {
     this.bodyWrap.angle += (lean - this.bodyWrap.angle) * 0.12;
 
     this.updatePupils();
+    this.placeArt();
 
     this.nextBlink -= delta;
     if (this.nextBlink <= 0) {

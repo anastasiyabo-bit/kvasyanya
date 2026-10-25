@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { ART_COUNT } from '../data/cosmetics';
 import { HAT_COUNT } from './textures';
 
 export const CHAR_SHEETS = {
@@ -11,7 +12,7 @@ export const CHAR_SHEETS = {
 
 export function preloadChars(scene: Phaser.Scene) {
   for (const [key, spec] of Object.entries(CHAR_SHEETS)) {
-    scene.load.spritesheet(key, `${spec.file}?v=3`, { frameWidth: spec.frameWidth, frameHeight: spec.frameHeight });
+    scene.load.spritesheet(key, `${spec.file}?v=4`, { frameWidth: spec.frameWidth, frameHeight: spec.frameHeight });
   }
 }
 
@@ -19,6 +20,9 @@ export function preloadHats(scene: Phaser.Scene) {
   for (let i = 0; i < HAT_COUNT; i++) {
     scene.load.image(`hat${i}`, `hats/hat${i}.png?v=3`);
     scene.load.image(`hatshop${i}`, `hats/hatshop${i}.png?v=3`);
+  }
+  for (let i = 0; i < ART_COUNT; i++) {
+    scene.load.image(`art${i}`, `art/art${i}.png?v=1`);
   }
   scene.load.image('ico_hat', 'hats/ico_hat.png?v=1');
   scene.load.image('ico_gear', 'ui/ico_gear.png?v=1');

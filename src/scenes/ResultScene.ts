@@ -1,11 +1,11 @@
 import Phaser from 'phaser';
 import { CHAR_SHEETS } from '../art/chars';
 import { frogIconKey, frogTextureKey, SKIN_NAMES, skinById } from '../art/skins';
-import { addBeadsOnFrogImage, addHatOnFrogImage } from '../objects/Frog';
+import { addArtOnFrogImage, addHatOnFrogImage, fitScale } from '../objects/Frog';
 import { HAT_NAMES } from '../art/textures';
-import { BEAD_COUNT, BEAD_NAMES, HAT_UNLOCK_COUNT, SKIN_COUNT } from '../data/cosmetics';
+import { ART_COUNT, ART_NAMES, HAT_UNLOCK_COUNT, SKIN_COUNT } from '../data/cosmetics';
 import {
-  BEAD_COST,
+  ART_COST,
   HAT_COST,
   TIER_FOR,
   TIER_NAMES,
@@ -36,7 +36,7 @@ export class ResultScene extends Phaser.Scene {
   private counts: Phaser.GameObjects.Text[] = [];
   private slots: Phaser.GameObjects.Image[] = [];
   private finalInv: Inventory = [0, 0, 0];
-  private finalOwned: Owned = { hats: 0, beads: 0, skins: 0 };
+  private finalOwned: Owned = { hats: 0, arts: 0, skins: 0 };
   private cascadeTimers: Phaser.Time.TimerEvent[] = [];
   private cascading = false;
   private buttons: Button[] = [];
@@ -146,14 +146,14 @@ export class ResultScene extends Phaser.Scene {
   private ownedNow(): Owned {
     return {
       hats: Save.data.hatsUnlocked,
-      beads: Save.data.beadsUnlocked,
+      arts: Save.data.artsUnlocked,
       skins: Save.data.skinsUnlocked,
     };
   }
 
   private progressLine(i: number, inv: Inventory, owned: Owned): string {
     if (i === 0) return trackLabel(inv[0], HAT_COST, owned.hats >= HAT_UNLOCK_COUNT);
-    if (i === 1) return trackLabel(inv[1], BEAD_COST, owned.beads >= BEAD_COUNT);
+    if (i === 1) return trackLabel(inv[1], ART_COST, owned.arts >= ART_COUNT);
     return owned.skins >= SKIN_COUNT ? 'все' : `${owned.skins}/${SKIN_COUNT}`;
   }
 
@@ -188,11 +188,11 @@ export class ResultScene extends Phaser.Scene {
       }
       s.inventory = res.inv;
       s.hatsUnlocked = res.owned.hats;
-      s.beadsUnlocked = res.owned.beads;
+      s.artsUnlocked = res.owned.arts;
       s.skinsUnlocked = res.owned.skins;
       for (const drop of res.drops) {
         if (drop.kind === 'hat') s.hat = drop.id;
-        else if (drop.kind === 'bead') s.bead = drop.id;
+        else if (drop.kind === 'art') s.art = drop.id;
         else s.skin = drop.id;
         this.pendingUnlocks.push(drop);
       }
@@ -331,14 +331,14 @@ export class ResultScene extends Phaser.Scene {
     const block = this.add.rectangle(360, 640, 720, 1280, 0x1a1030, 0.45).setInteractive().setDepth(29);
     const c = this.add.container(360, 600).setDepth(30);
     c.add(panel(this, 0, 0, 520, 450));
-    const title = item.kind === 'skin' ? 'Новый окрас!' : item.kind === 'bead' ? 'Новые бусы!' : 'Новая шапочка!';
+    const title = item.kind === 'skin' ? 'Новый окрас!' : item.kind === 'art' ? 'Новый рисунок!' : 'Новая шапочка!';
     c.add(txt(this, 0, -155, title, 50, '#ffffff'));
-    const key = item.kind === 'skin' ? frogIconKey(item.id) : item.kind === 'bead' ? `bead${item.id}` : `hatshop${item.id}`;
-    const scale = item.kind === 'hat' ? 0.72 : 0.9;
-    const h = this.add.image(0, -40, key).setScale(scale);
+    const key = item.kind === 'skin' ? frogIconKey(item.id) : item.kind === 'art' ? `art${item.id}` : `hatshop${item.id}`;
+    const h = this.add.image(0, -40, key);
+    h.setScale(item.kind === 'hat' ? 0.72 : item.kind === 'art' ? fitScale(h, 170, 160) : 0.9);
     this.tweens.add({ targets: h, angle: { from: -8, to: 8 }, duration: 500, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
     c.add(h);
-    const name = item.kind === 'skin' ? SKIN_NAMES[item.id] : item.kind === 'bead' ? BEAD_NAMES[item.id] : HAT_NAMES[item.id];
+    const name = item.kind === 'skin' ? SKIN_NAMES[item.id] : item.kind === 'art' ? ART_NAMES[item.id] : HAT_NAMES[item.id];
     c.add(txt(this, 0, 70, name, 40, '#8a5a32', { stroke: '#fff1cf', strokeW: 2 }));
     const close = () => {
       block.destroy();
@@ -422,7 +422,7 @@ export class ResultScene extends Phaser.Scene {
     const sad = this.add.image(0, -175, frogTextureKey(Save.data.skin), 4).setOrigin(0.5, 0.55).setScale(0.38);
     r.add(sad);
     addHatOnFrogImage(this, r, sad, Save.data.hat);
-    addBeadsOnFrogImage(this, r, sad, Save.data.bead);
+    addArtOnFrogImage(this, r, sad, Save.data.art);
     const fh = CHAR_SHEETS.frog_char.frameHeight;
     const eyes: [number, number][] = [
       [-100.5, -414.5],

@@ -1,10 +1,10 @@
 import {
-  BEAD_COUNT,
+  ART_COUNT,
   HAT_UNLOCK_COUNT,
-  isBeadUnlocked,
+  isArtUnlocked,
   isHatUnlocked,
   isSkinUnlocked,
-  lastUnlockedBead,
+  lastUnlockedArt,
   lastUnlockedHat,
   lastUnlockedSkin,
   SKIN_COUNT,
@@ -14,13 +14,13 @@ import { migrateLegacy, type Inventory } from '../data/rewards';
 export interface SaveData {
   version: 2;
   level: number;
-  /** Remainder toward the next hat, necklace and skin: [sparks, glitters, chests]. */
+  /** Remainder toward the next hat, belly drawing and skin: [sparks, glitters, chests]. */
   inventory: Inventory;
   hatsUnlocked: number;
-  beadsUnlocked: number;
+  artsUnlocked: number;
   skinsUnlocked: number;
   hat: number;
-  bead: number;
+  art: number;
   skin: number;
   music: boolean;
   sfx: boolean;
@@ -37,10 +37,10 @@ export function defaultSave(): SaveData {
     level: 1,
     inventory: [0, 0, 0],
     hatsUnlocked: 0,
-    beadsUnlocked: 0,
+    artsUnlocked: 0,
     skinsUnlocked: 0,
     hat: -1,
-    bead: -1,
+    art: -1,
     skin: 0,
     music: true,
     sfx: true,
@@ -70,19 +70,21 @@ export function sanitize(raw: unknown): SaveData {
     const m = migrateLegacy(legacy as [number, number, number, number], prizes);
     d.inventory = m.inv;
     d.hatsUnlocked = m.owned.hats;
-    d.beadsUnlocked = m.owned.beads;
+    d.artsUnlocked = m.owned.arts;
     d.skinsUnlocked = m.owned.skins;
   } else if (modern) {
     d.inventory = modern as Inventory;
     if (isNum(r.hatsUnlocked)) d.hatsUnlocked = Math.max(0, Math.min(HAT_UNLOCK_COUNT, Math.floor(r.hatsUnlocked)));
-    if (isNum(r.beadsUnlocked)) d.beadsUnlocked = Math.max(0, Math.min(BEAD_COUNT, Math.floor(r.beadsUnlocked)));
+    const arts = isNum(r.artsUnlocked) ? r.artsUnlocked : r.beadsUnlocked;
+    if (isNum(arts)) d.artsUnlocked = Math.max(0, Math.min(ART_COUNT, Math.floor(arts)));
     if (isNum(r.skinsUnlocked)) d.skinsUnlocked = Math.max(0, Math.min(SKIN_COUNT, Math.floor(r.skinsUnlocked)));
   }
 
   if (isNum(r.hat)) d.hat = Math.floor(r.hat);
   if (d.hat >= 0 && !isHatUnlocked(d.hat, d.hatsUnlocked)) d.hat = lastUnlockedHat(d.hatsUnlocked);
-  if (isNum(r.bead)) d.bead = Math.floor(r.bead);
-  if (d.bead >= 0 && !isBeadUnlocked(d.bead, d.beadsUnlocked)) d.bead = lastUnlockedBead(d.beadsUnlocked);
+  const art = isNum(r.art) ? r.art : r.bead;
+  if (isNum(art)) d.art = Math.floor(art);
+  if (d.art >= 0 && !isArtUnlocked(d.art, d.artsUnlocked)) d.art = lastUnlockedArt(d.artsUnlocked);
   if (isNum(r.skin)) d.skin = Math.max(0, Math.floor(r.skin));
   if (!isSkinUnlocked(d.skin, d.skinsUnlocked)) d.skin = lastUnlockedSkin(d.skinsUnlocked);
 
@@ -101,7 +103,7 @@ export function sanitize(raw: unknown): SaveData {
 /** Prefers the save with more progress so a stale cloud copy never wipes local progress (or vice versa). */
 export function mergeSaves(a: SaveData, b: SaveData): SaveData {
   const progress = (s: SaveData) =>
-    s.level * 10000 + s.hatsUnlocked * 100 + s.skinsUnlocked * 30 + s.beadsUnlocked * 10 + s.inventory[0] + s.inventory[1] + s.inventory[2];
+    s.level * 10000 + s.hatsUnlocked * 100 + s.skinsUnlocked * 30 + s.artsUnlocked * 10 + s.inventory[0] + s.inventory[1] + s.inventory[2];
   return progress(b) > progress(a) ? b : a;
 }
 

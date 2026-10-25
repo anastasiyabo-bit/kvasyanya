@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { BEAD_STYLES, type BeadStyle } from '../data/cosmetics';
+import { HAT_NAMES } from '../data/cosmetics';
 import { C } from '../config';
 import {
   G,
@@ -12,19 +12,7 @@ import {
   starPoints,
 } from './draw';
 
-export const HAT_NAMES = [
-  'Корона',
-  'Бантик',
-  'Колпачок',
-  'Ковбойка',
-  'Поварёнок',
-  'Кувшинка',
-  'Каска',
-  'Медка',
-  'Помпон',
-  'Венок',
-  'Цилиндр',
-] as const;
+export { HAT_NAMES };
 export const HAT_COUNT = HAT_NAMES.length;
 
 function bake(g: G, key: string, w: number, h: number, draw: (g: G) => void) {
@@ -74,66 +62,6 @@ function heart(g: G) {
   olPolygon(g, pts, C.tongue, 3);
   g.fillStyle(0xffffff, 0.5);
   g.fillCircle(13, 11, 4);
-}
-
-function beadDot(g: G, x: number, y: number, r: number, color: number) {
-  olCircle(g, x, y, r, 3);
-  g.fillStyle(shade(color, -0.28), 1);
-  g.fillCircle(x + r * 0.08, y + r * 0.12, r * 0.92);
-  g.fillStyle(color, 1);
-  g.fillCircle(x - r * 0.08, y - r * 0.1, r * 0.82);
-  g.fillStyle(0xffffff, 0.7);
-  g.fillCircle(x - r * 0.32, y - r * 0.32, r * 0.26);
-}
-
-function beadMark(g: G, x: number, y: number, r: number, style: BeadStyle) {
-  if (style === 'pearl') {
-    beadDot(g, x, y, r, 0xfff6ea);
-    return;
-  }
-  if (style === 'berry') {
-    beadDot(g, x, y, r, 0xe23d6e);
-    return;
-  }
-  if (style === 'heart') {
-    const pts: Phaser.Types.Math.Vector2Like[] = [];
-    const s = r / 14;
-    for (let i = 0; i <= 28; i++) {
-      const t = (i / 28) * Math.PI * 2;
-      const px = 16 * Math.pow(Math.sin(t), 3);
-      const py = -(13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t));
-      pts.push({ x: x + px * s, y: y + py * s * 0.95 + r * 0.08 });
-    }
-    olPolygon(g, pts, C.tongue, 3);
-    g.fillStyle(0xffffff, 0.55);
-    g.fillCircle(x - r * 0.28, y - r * 0.22, r * 0.16);
-    return;
-  }
-  const color = style === 'spark' ? 0xfff1a8 : C.gold;
-  olPolygon(g, starPoints(x, y, r, r * 0.42, style === 'spark' ? 4 : 5), color, 3);
-  g.fillStyle(0xffffff, 0.75);
-  g.fillCircle(x - r * 0.22, y - r * 0.18, r * 0.16);
-}
-
-/** A short string of beads worn on Kvasi's chest. */
-function necklace(g: G, style: BeadStyle) {
-  const spots: { x: number; y: number }[] = [];
-  for (let i = 0; i < 5; i++) {
-    const t = i / 4;
-    spots.push({ x: 34 + t * 232, y: 88 - Math.sin(t * Math.PI) * 54 });
-  }
-  g.lineStyle(12, OL, 1);
-  g.beginPath();
-  g.moveTo(spots[0].x, spots[0].y);
-  for (const p of spots) g.lineTo(p.x, p.y);
-  g.strokePath();
-  g.lineStyle(5, 0xfff1cf, 1);
-  g.beginPath();
-  g.moveTo(spots[0].x, spots[0].y);
-  for (const p of spots) g.lineTo(p.x, p.y);
-  g.strokePath();
-  const radii = [13, 16, 19, 16, 13];
-  spots.forEach((p, i) => beadMark(g, p.x, p.y, radii[i], style));
 }
 
 function bigStar(g: G, filled: boolean) {
@@ -314,8 +242,6 @@ export function generateTextures(scene: Phaser.Scene) {
     if (skipIcon.has(name)) continue;
     bake(g, `ico_${name}`, 64, 64, fn);
   }
-
-  BEAD_STYLES.forEach((style, i) => bake(g, `bead${i}`, 300, 120, (gg) => necklace(gg, style)));
 
   bake(g, 'rbtn_green', 112, 112, (gg) => roundButton(gg, C.btn, C.btnShade));
   bake(g, 'rbtn_orange', 112, 112, (gg) => roundButton(gg, C.btnAlt, C.btnAltShade));

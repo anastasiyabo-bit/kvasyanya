@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { frogTextureKey } from '../art/skins';
-import { addBeadsOnFrogImage, addHatOnFrogImage } from '../objects/Frog';
+import { addArtOnFrogImage, addHatOnFrogImage } from '../objects/Frog';
 import { Sound } from '../systems/audio';
 import { Save } from '../systems/save';
 import { Button, dimmer, panel, popIn, toggleButton, txt } from '../ui/ui';
@@ -28,7 +28,7 @@ export class PauseScene extends Phaser.Scene {
     this.tweens.add({ targets: z, y: -235, alpha: 0.3, duration: 900, yoyo: true, repeat: -1 });
     c.add([nap, z]);
     addHatOnFrogImage(this, c, nap, Save.data.hat);
-    addBeadsOnFrogImage(this, c, nap, Save.data.bead);
+    addArtOnFrogImage(this, c, nap, Save.data.art);
 
     const resume = new Button(this, 0, -50, { w: 460, h: 116, label: 'Продолжить', size: 46, icon: 'ico_play', onClick: () => this.resumeGame() });
     resume.pulse();

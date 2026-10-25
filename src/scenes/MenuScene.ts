@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { FONT, FROG_X, PERCH_Y, TEXT_OUTLINE, W } from '../config';
-import { BEAD_COUNT, HAT_UNLOCK_COUNT, SKIN_COUNT } from '../data/cosmetics';
-import { BEAD_COST, HAT_COST, trackLabel } from '../data/rewards';
+import { ART_COUNT, HAT_UNLOCK_COUNT, SKIN_COUNT } from '../data/cosmetics';
+import { ART_COST, HAT_COST, trackLabel } from '../data/rewards';
 import { ensureBackground } from '../art/backgrounds';
 import { BUG_BLUSH, FROG_EAT, FROG_POKE, pick } from '../data/phrases';
 import { Frog } from '../objects/Frog';
@@ -42,7 +42,7 @@ export class MenuScene extends Phaser.Scene {
     this.buildCollection();
 
     this.frog = new Frog(this, FROG_X, PERCH_Y - 8);
-    this.frog.dress(Save.data.hat, Save.data.skin, Save.data.bead);
+    this.frog.dress(Save.data.hat, Save.data.skin, Save.data.art);
     this.time.delayedCall(700, () => {
       this.frog.say('Привет! Я Квася!', 1600);
       Sound.speak('frog', 4);
@@ -125,10 +125,10 @@ export class MenuScene extends Phaser.Scene {
     g.fillStyle(0xfff6dc, 0.95);
     g.fillRoundedRect(76, 398, 568, 106, 41);
     const keys = ['tier0', 'tier1', 'tier3'] as const;
-    const captions = ['шапочки', 'бусы', 'окрасы'] as const;
+    const captions = ['шапочки', 'рисунки', 'окрасы'] as const;
     const lines = [
       trackLabel(inv[0], HAT_COST, Save.data.hatsUnlocked >= HAT_UNLOCK_COUNT),
-      trackLabel(inv[1], BEAD_COST, Save.data.beadsUnlocked >= BEAD_COUNT),
+      trackLabel(inv[1], ART_COST, Save.data.artsUnlocked >= ART_COUNT),
       Save.data.skinsUnlocked >= SKIN_COUNT ? 'все' : `${Save.data.skinsUnlocked}/${SKIN_COUNT}`,
     ];
     for (let t = 0; t < 3; t++) {
@@ -170,7 +170,7 @@ export class MenuScene extends Phaser.Scene {
 
   releaseOverlay() {
     this.overlayOpen = false;
-    this.frog.dress(Save.data.hat, Save.data.skin, Save.data.bead);
+    this.frog.dress(Save.data.hat, Save.data.skin, Save.data.art);
     Sound.setMusic(Save.data.music);
     Sound.setSfx(Save.data.sfx);
   }
