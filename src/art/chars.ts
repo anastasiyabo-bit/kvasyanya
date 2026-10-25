@@ -1,18 +1,32 @@
 import Phaser from 'phaser';
 import { ART_COUNT } from '../data/cosmetics';
 import { HAT_COUNT } from './textures';
+import { INSECT_SHEETS, PROP_SHEETS } from './insectSheets';
+
+export { INSECT_SHEETS, PROP_SHEETS };
+export type InsectTexture = keyof typeof INSECT_SHEETS;
 
 export const CHAR_SHEETS = {
   frog_char: { file: 'chars/frog.png', frameWidth: 624, frameHeight: 520 },
-  fly: { file: 'chars/fly.png', frameWidth: 268, frameHeight: 280 },
-  mosquito: { file: 'chars/mosquito.png', frameWidth: 336, frameHeight: 280 },
-  fatfly: { file: 'chars/fatfly.png', frameWidth: 266, frameHeight: 280 },
-  goldfly: { file: 'chars/goldfly.png', frameWidth: 268, frameHeight: 280 },
+  ...INSECT_SHEETS,
+  ...PROP_SHEETS,
 } as const;
+
+/** Wing beats per second; the mosquito buzzes faster, a dozing fly barely moves. */
+export const FLAP_RATE: Partial<Record<InsectTexture, number>> = { mosquito: 18, thief: 18 };
+export const DOZE_RATE = 2;
+
+export function flapAnim(tex: InsectTexture) {
+  return `${tex}-flap`;
+}
+
+export function dozeAnim(tex: InsectTexture) {
+  return `${tex}-doze`;
+}
 
 export function preloadChars(scene: Phaser.Scene) {
   for (const [key, spec] of Object.entries(CHAR_SHEETS)) {
-    scene.load.spritesheet(key, `${spec.file}?v=4`, { frameWidth: spec.frameWidth, frameHeight: spec.frameHeight });
+    scene.load.spritesheet(key, `${spec.file}?v=5`, { frameWidth: spec.frameWidth, frameHeight: spec.frameHeight });
   }
 }
 
@@ -77,12 +91,9 @@ export function createCharAnims(scene: Phaser.Scene) {
     repeat: 0,
   });
 
-  for (const key of ['fly', 'mosquito', 'fatfly', 'goldfly'] as const) {
-    scene.anims.create({
-      key: `${key}-flap`,
-      frames: scene.anims.generateFrameNumbers(key, { start: 0, end: 1 }),
-      frameRate: key === 'mosquito' ? 18 : 14,
-      repeat: -1,
-    });
+  for (const key of Object.keys(INSECT_SHEETS) as InsectTexture[]) {
+    const frames = scene.anims.generateFrameNumbers(key, { start: 0, end: 1 });
+    scene.anims.create({ key: flapAnim(key), frames, frameRate: FLAP_RATE[key] ?? 14, repeat: -1 });
+    scene.anims.create({ key: dozeAnim(key), frames, frameRate: DOZE_RATE, repeat: -1 });
   }
 }

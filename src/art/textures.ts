@@ -232,6 +232,12 @@ export function generateTextures(scene: Phaser.Scene) {
   bake(g, 'star', 112, 112, (gg) => bigStar(gg, true));
   bake(g, 'star_empty', 112, 112, (gg) => bigStar(gg, false));
   bake(g, 'puff', 44, 44, puff);
+  bake(g, 'glow', 128, 128, (gg) => {
+    for (let i = 16; i >= 1; i--) {
+      gg.fillStyle(0xeeff70, 0.07);
+      gg.fillCircle(64, 64, i * 4);
+    }
+  });
   bake(g, 'dot', 16, 16, (gg) => {
     gg.fillStyle(0xffffff, 1);
     gg.fillCircle(8, 8, 8);

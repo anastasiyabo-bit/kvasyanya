@@ -87,7 +87,8 @@ export class ResultScene extends Phaser.Scene {
     const d = this.d;
     const r = this.root;
     r.add(panel(this, 0, 0, 650, 1060));
-    r.add(txt(this, 0, -455, d.isSuper ? 'Супер-уровень пройден!' : `Уровень ${d.level} пройден!`, d.isSuper ? 46 : 54, '#ffffff'));
+    const head = d.isSuper ? 'Супер-уровень пройден!' : d.isRace ? 'Клеша обогнана!' : `Уровень ${d.level} пройден!`;
+    r.add(txt(this, 0, -455, head, d.isSuper || d.isRace ? 46 : 54, '#ffffff'));
 
     const starKeys = ['star_bronze', 'star_silver', 'star_gold'] as const;
     const starScales = [0.92, 1.02, 1.28];
@@ -107,7 +108,8 @@ export class ResultScene extends Phaser.Scene {
       }
     }
 
-    let info = `Очки: ${d.score}    Поймано: ${d.caught}`;
+    let info = d.isRace ? `Квася ${d.caught} : ${d.rivalCaught} Клеша` : `Очки: ${d.score}    Поймано: ${d.caught}`;
+    if (d.isRace) info += `\nОтрыв: ${d.caught - d.rivalCaught}`;
     if (d.isSuper && d.superMult > 1) info += `\nБонус супер-уровня ×${d.superMult}`;
     r.add(txt(this, 0, -175, info, 36, '#2b1d16', { stroke: '#fff1cf', strokeW: 2 }));
 
@@ -418,7 +420,7 @@ export class ResultScene extends Phaser.Scene {
     const d = this.d;
     const r = this.root;
     r.add(panel(this, 0, d.canExtend ? 0 : -60, 640, d.canExtend ? 900 : 780));
-    r.add(txt(this, 0, -370, 'Квася не наелась…', 52, '#ffffff'));
+    r.add(txt(this, 0, -370, d.isRace ? 'Клеша победила…' : 'Квася не наелась…', 52, '#ffffff'));
     const sad = this.add.image(0, -175, frogTextureKey(Save.data.skin), 4).setOrigin(0.5, 0.55).setScale(0.38);
     r.add(sad);
     addHatOnFrogImage(this, r, sad, Save.data.hat);
@@ -440,16 +442,28 @@ export class ResultScene extends Phaser.Scene {
       r.add(pupil);
     }
     const line =
-      d.reason === 'min'
-        ? `Поймано ${d.caught} из ${d.minCatch}`
-        : `Очки ${d.score} из ${d.superThreshold}`;
+      d.reason === 'race'
+        ? `Квася ${d.caught} : ${d.rivalCaught} Клеша`
+        : d.reason === 'min'
+          ? `Поймано ${d.caught} из ${d.minCatch}`
+          : `Очки ${d.score} из ${d.superThreshold}`;
     r.add(txt(this, 0, -60, line, 44, '#2b1d16', { stroke: '#fff1cf', strokeW: 2 }));
-    const close = d.reason === 'min' ? d.caught >= d.minCatch * 0.7 : d.score >= d.superThreshold * 0.8;
-    const hint = close
-      ? 'Не хватило совсем чуть-чуть!'
-      : d.reason === 'min'
-        ? 'Тапай быстрее — мошки не ждут!'
-        : 'Тапай пару дважды в одну точку!';
+    const close =
+      d.reason === 'race'
+        ? d.caught >= d.rivalCaught - 1
+        : d.reason === 'min'
+          ? d.caught >= d.minCatch * 0.7
+          : d.score >= d.superThreshold * 0.8;
+    const hint =
+      d.reason === 'race'
+        ? d.caught === d.rivalCaught
+          ? 'Ничья — победа за Клешей.\nОбгони её хоть на одну!'
+          : 'Перехватывай мошек, пока она целится!'
+        : close
+          ? 'Не хватило совсем чуть-чуть!'
+          : d.reason === 'min'
+            ? 'Тапай быстрее — мошки не ждут!'
+            : 'Тапай пару дважды в одну точку!';
     r.add(txt(this, 0, 5, hint, 32, '#8a5a32', { stroke: '#fff1cf', strokeW: 2 }));
 
     let y = 130;

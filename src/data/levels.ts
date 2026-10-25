@@ -1,6 +1,17 @@
+import { isSuperLevel, levelPlan, type GuestKind, type LevelKind, type Novelty } from './schedule';
+
+export { isSuperLevel, isRaceLevel, isNapLevel, levelPlan } from './schedule';
+export type { GuestKind, LevelKind, Novelty } from './schedule';
+
 export interface LevelConfig {
   level: number;
+  kind: LevelKind;
   isSuper: boolean;
+  isRace: boolean;
+  isNap: boolean;
+  /** The one special visitor of a guest level. */
+  guest: GuestKind | null;
+  intro: Novelty | null;
   duration: number;
   minCatch: number;
   spawnInterval: number;
@@ -16,12 +27,9 @@ export interface LevelConfig {
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
-export function isSuperLevel(level: number): boolean {
-  return level > 0 && level % 5 === 0;
-}
-
 export function getLevelConfig(level: number): LevelConfig {
   const n = Math.max(1, Math.floor(level));
+  const plan = levelPlan(n);
   const isSuper = isSuperLevel(n);
 
   const duration = 30;
@@ -39,7 +47,12 @@ export function getLevelConfig(level: number): LevelConfig {
 
   return {
     level: n,
+    kind: plan.kind,
     isSuper,
+    isRace: plan.kind === 'race',
+    isNap: plan.kind === 'nap',
+    guest: plan.guest,
+    intro: plan.intro,
     duration,
     minCatch,
     spawnInterval: Math.round(spawnInterval),
@@ -57,10 +70,28 @@ export function getLevelConfig(level: number): LevelConfig {
 export interface LevelOutcome {
   won: boolean;
   stars: 0 | 1 | 2 | 3;
-  reason: 'ok' | 'min' | 'threshold';
+  reason: 'ok' | 'min' | 'threshold' | 'race';
 }
 
-export function evaluateLevel(cfg: LevelConfig, score: number, caught: number): LevelOutcome {
+/** Race lead needed for 1, 2 and 3 stars. */
+export const RACE_STAR_LEADS = [1, 3, 5] as const;
+
+export function raceStars(lead: number): 0 | 1 | 2 | 3 {
+  if (lead >= RACE_STAR_LEADS[2]) return 3;
+  if (lead >= RACE_STAR_LEADS[1]) return 2;
+  if (lead >= RACE_STAR_LEADS[0]) return 1;
+  return 0;
+}
+
+/** Strictly more catches than Klesha wins; a tie is hers. */
+export function evaluateRace(caught: number, rivalCaught: number): LevelOutcome {
+  const stars = raceStars(caught - rivalCaught);
+  if (stars === 0) return { won: false, stars: 0, reason: 'race' };
+  return { won: true, stars, reason: 'ok' };
+}
+
+export function evaluateLevel(cfg: LevelConfig, score: number, caught: number, rivalCaught = 0): LevelOutcome {
+  if (cfg.isRace) return evaluateRace(caught, rivalCaught);
   if (caught < cfg.minCatch) return { won: false, stars: 0, reason: 'min' };
   if (cfg.isSuper && score < cfg.superThreshold) return { won: false, stars: 0, reason: 'threshold' };
   let stars: 1 | 2 | 3 = 1;

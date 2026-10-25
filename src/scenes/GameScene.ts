@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
-import { C, FROG_X, INSECT_BOTTOM, INSECT_TOP, PERCH_Y, W } from '../config';
+import { C, FROG_X, H, INSECT_BOTTOM, INSECT_TOP, PERCH_Y, W } from '../config';
 import { ensureBackground, themeNameForLevel } from '../art/backgrounds';
+import { frogIconKey } from '../art/skins';
 import {
   COMBO_WINDOW_MS,
   PAIR_BONUS,
@@ -12,10 +13,22 @@ import {
   type LevelConfig,
 } from '../data/levels';
 import { DOUBLE_TONGUE_MS, pickSecondTongueTarget } from '../data/doubleTongue';
+import {
+  CALLER_FRIEND_DELAYS,
+  CALLER_FRIEND_SPEED,
+  RULE_LINES,
+  collectCandy,
+  thiefEscape,
+  touchInsect,
+  type TapZone,
+} from '../data/guests';
+import { RivalBrain, rivalPaceMs, rivalPick } from '../data/race';
+import type { GuestKind, Novelty } from '../data/schedule';
+import { pickGuestTime, pickSpawn, quietLane, quietSpot, rollKind, type SpawnState } from '../data/spawn';
 import { sparksForLevel } from '../data/rewards';
 import { BUG_BLUSH, FROG_EAT, FROG_FAIL, FROG_FULL, FROG_LICK, FROG_MISS, FROG_POKE, FROG_WIN, MOSQUITO_BLUSH, pick, plural } from '../data/phrases';
 import { Frog } from '../objects/Frog';
-import { Insect, type InsectKind } from '../objects/Insect';
+import { Insect } from '../objects/Insect';
 import { Sound } from '../systems/audio';
 import { Save } from '../systems/save';
 import { Ya } from '../systems/yandex';
@@ -31,15 +44,32 @@ export interface ResultData {
   score: number;
   caught: number;
   minCatch: number;
-  reason: 'ok' | 'min' | 'threshold';
+  reason: 'ok' | 'min' | 'threshold' | 'race';
   isSuper: boolean;
+  isRace: boolean;
+  rivalCaught: number;
   superThreshold: number;
   superMult: number;
   sparks: number;
   canExtend: boolean;
 }
 
+interface CandyDrop {
+  img: Phaser.GameObjects.Image;
+  x0: number;
+  t: number;
+}
+
 const PAIR_WINDOW_MS = 650;
+const TONGUE_TRIP_MS = 215;
+const CANDY_FALL = 85;
+const CANDY_R = 72;
+/** Pop-up words stay below the HUD. */
+const STICKER_MIN_Y = 330;
+const RACE_SCALE = 0.8;
+const KVASYA_RACE_X = 528;
+const KLESHA_X = 192;
+const KLESHA_SKINS = [3, 2, 6];
 const DEV = import.meta.env.DEV;
 
 export class GameScene extends Phaser.Scene {
@@ -71,11 +101,27 @@ export class GameScene extends Phaser.Scene {
   private tutorialArrow: Phaser.GameObjects.Image | null = null;
   private tutorialRing: Phaser.GameObjects.Arc | null = null;
 
+  // events of the level
+  private guestDueAt = Infinity;
+  private guestSpawned = false;
+  private guestsSeen: GuestKind[] = [];
+  private spawnQuietUntil = 0;
+  private numbUntil = 0;
+  private chewUntil = 0;
+  private busyHintAt = -9999;
+  private friendsDue: number[] = [];
+  private candies: CandyDrop[] = [];
+  private rival: Frog | null = null;
+  private rivalBrain: RivalBrain<Insect> | null = null;
+  private rivalCaught = 0;
+  private rivalSkin = 3;
+
   // HUD
   private timerText!: Phaser.GameObjects.Text;
   private timerPill!: Phaser.GameObjects.Container;
   private catchText!: Phaser.GameObjects.Text;
   private scoreText!: Phaser.GameObjects.Text;
+  private rivalText: Phaser.GameObjects.Text | null = null;
   private barFill!: Phaser.GameObjects.Graphics;
   private barMax = 1;
   private starMarks: Phaser.GameObjects.Image[] = [];
@@ -121,13 +167,35 @@ export class GameScene extends Phaser.Scene {
     this.systemFrozen = false;
     this.doubleTongueGranted = false;
     this.doubleTongueUntil = 0;
+    this.guestDueAt = this.cfg.guest ? pickGuestTime(this.cfg.guest, this.cfg.duration * 1000, Math.random) : Infinity;
+    this.guestSpawned = false;
+    this.guestsSeen = [];
+    this.spawnQuietUntil = 0;
+    this.numbUntil = 0;
+    this.chewUntil = 0;
+    this.busyHintAt = -9999;
+    this.friendsDue = [];
+    this.candies = [];
+    this.rival = null;
+    this.rivalBrain = null;
+    this.rivalCaught = 0;
+    this.rivalText = null;
   }
 
   create() {
     this.add.image(0, 0, ensureBackground(this, this.level)).setOrigin(0);
-    this.frog = new Frog(this, FROG_X, PERCH_Y - 8);
+    if (this.cfg.isRace) {
+      this.rivalSkin = KLESHA_SKINS.find((s) => s !== Save.data.skin) ?? 3;
+      this.rival = new Frog(this, KLESHA_X, PERCH_Y - 8, { scaleMul: RACE_SCALE, followPointer: false });
+      this.rival.dress(-1, this.rivalSkin, -1);
+      this.rival.lookAt(KLESHA_X + 160, 500);
+      this.rivalBrain = new RivalBrain<Insect>(rivalPaceMs(this.cfg));
+      this.frog = new Frog(this, KVASYA_RACE_X, PERCH_Y - 8, { scaleMul: RACE_SCALE, bubbleSide: -1 });
+    } else {
+      this.frog = new Frog(this, FROG_X, PERCH_Y - 8);
+    }
     this.frog.dress(Save.data.hat, Save.data.skin, Save.data.art);
-    this.frog.lookAt(FROG_X, 500);
+    this.frog.lookAt(this.frog.x, 500);
     this.buildHud();
 
     this.input.on('pointerdown', this.onTap, this);
@@ -174,8 +242,10 @@ export class GameScene extends Phaser.Scene {
     pauseBtn.setBaseScale(0.85).setDepth(80);
 
     const sup = this.cfg.isSuper;
-    const title = this.pill(360, 78, sup ? 330 : 250, 74, sup ? C.gold : C.cream);
-    title.add(txt(this, 0, 0, sup ? `СУПЕР ${this.level}` : `Уровень ${this.level}`, 38, sup ? '#ffffff' : '#2b1d16', {
+    const race = this.cfg.isRace;
+    const label = sup ? `СУПЕР ${this.level}` : race ? `Гонка ${this.level}` : `Уровень ${this.level}`;
+    const title = this.pill(360, 78, sup ? 330 : 250, 74, sup ? C.gold : race ? 0xffd9a8 : C.cream);
+    title.add(txt(this, 0, 0, label, 38, sup ? '#ffffff' : '#2b1d16', {
       stroke: sup ? '#2b1d16' : '#fff6dc',
       strokeW: sup ? 7 : 2,
     }));
@@ -188,17 +258,40 @@ export class GameScene extends Phaser.Scene {
     this.timerText = txt(this, 0, 0, this.fmtTime(this.timeLeft), 42, '#2b1d16', { stroke: '#fff6dc', strokeW: 2 });
     this.timerPill.add(this.timerText);
 
-    const cp = this.pill(196, 172, 290, 70);
-    cp.add(this.add.image(-100, -2, 'fly', 0).setScale(0.32));
-    this.catchText = txt(this, 30, 0, `0 / ${this.cfg.minCatch}`, 38, '#2b1d16', { stroke: '#fff6dc', strokeW: 2 });
-    cp.add(this.catchText);
+    if (race) {
+      // Klesha on the left, Kvasya on the right, same as the frogs below.
+      const rp = this.pill(196, 172, 290, 70, 0xdcecff);
+      rp.add(this.add.image(-104, -4, frogIconKey(this.rivalSkin)).setScale(0.3));
+      this.rivalText = txt(this, 26, 0, 'Клеша  0', 36, '#2b1d16', { stroke: '#fff6dc', strokeW: 2 });
+      rp.add(this.rivalText);
+      const kp = this.pill(524, 172, 290, 70);
+      kp.add(this.add.image(-104, -4, frogIconKey(Save.data.skin)).setScale(0.3));
+      this.catchText = txt(this, 26, 0, 'Квася  0', 36, '#2b1d16', { stroke: '#fff6dc', strokeW: 2 });
+      kp.add(this.catchText);
+      this.scoreText = txt(this, -1000, -1000, '0', 10).setVisible(false);
+      this.barFill = this.add.graphics();
+      this.barMax = 1;
+    } else {
+      const cp = this.pill(196, 172, 290, 70);
+      cp.add(this.add.image(-100, -2, 'fly', 0).setScale(0.32));
+      this.catchText = txt(this, 30, 0, `0 / ${this.cfg.minCatch}`, 38, '#2b1d16', { stroke: '#fff6dc', strokeW: 2 });
+      cp.add(this.catchText);
 
-    const sp = this.pill(524, 172, 290, 70);
-    sp.add(this.add.image(-100, -2, 'spark').setScale(1.1));
-    this.scoreText = txt(this, 24, 0, '0', 38, '#2b1d16', { stroke: '#fff6dc', strokeW: 2 });
-    sp.add(this.scoreText);
+      const sp = this.pill(524, 172, 290, 70);
+      sp.add(this.add.image(-100, -2, 'spark').setScale(1.1));
+      this.scoreText = txt(this, 24, 0, '0', 38, '#2b1d16', { stroke: '#fff6dc', strokeW: 2 });
+      sp.add(this.scoreText);
+      this.buildBar();
+    }
 
-    // progress bar with star (or threshold) markers
+    this.doubleHud = this.pill(360, 292, 360, 52, 0xffe08a).setDepth(72).setVisible(false);
+    this.doubleHudText = txt(this, 0, 0, 'Двойной язык  8', 28, '#2b1d16', { stroke: '#fff6dc', strokeW: 2 });
+    this.doubleHud.add(this.doubleHudText);
+  }
+
+  /** Progress bar with star (or threshold) markers. */
+  private buildBar() {
+    const sup = this.cfg.isSuper;
     const bx = 70;
     const bw = 580;
     const by = 248;
@@ -231,13 +324,10 @@ export class GameScene extends Phaser.Scene {
       this.starMarks.push(img);
     }
     this.drawBar();
-
-    this.doubleHud = this.pill(360, 292, 360, 52, 0xffe08a).setDepth(72).setVisible(false);
-    this.doubleHudText = txt(this, 0, 0, 'Двойной язык  8', 28, '#2b1d16', { stroke: '#fff6dc', strokeW: 2 });
-    this.doubleHud.add(this.doubleHudText);
   }
 
   private drawBar() {
+    if (this.cfg.isRace) return;
     const bx = 70;
     const bw = 580;
     const by = 248;
@@ -267,8 +357,16 @@ export class GameScene extends Phaser.Scene {
   }
 
   private refreshHud() {
-    this.catchText.setText(`${this.caught} / ${this.cfg.minCatch}`);
-    this.catchText.setColor(this.caught >= this.cfg.minCatch ? '#3f9a2a' : '#2b1d16');
+    if (this.cfg.isRace) {
+      this.catchText.setText(`Квася  ${this.caught}`);
+      this.rivalText?.setText(`Клеша  ${this.rivalCaught}`);
+      const ahead = this.caught > this.rivalCaught;
+      this.catchText.setColor(ahead ? '#3f9a2a' : '#2b1d16');
+      this.rivalText?.setColor(this.rivalCaught >= this.caught && this.rivalCaught > 0 ? '#c2410c' : '#2b1d16');
+    } else {
+      this.catchText.setText(`${this.caught} / ${this.cfg.minCatch}`);
+      this.catchText.setColor(this.caught >= this.cfg.minCatch ? '#3f9a2a' : '#2b1d16');
+    }
     this.tweens.add({ targets: this.catchText, scale: { from: 1.3, to: 1 }, duration: 180 });
     this.tweens.addCounter({
       from: this.shownScore,
@@ -288,13 +386,16 @@ export class GameScene extends Phaser.Scene {
     this.state = 'intro';
     const c = this.add.container(360, 600).setDepth(100);
     const sup = this.cfg.isSuper;
-    const h = sup ? 760 : 440;
+    const race = this.cfg.isRace;
+    const nap = this.cfg.isNap;
+    const ribbonText = sup ? 'СУПЕР-УРОВЕНЬ!' : race ? 'ГОНКА!' : nap ? 'ТИХИЙ ЧАС' : '';
+    const h = sup ? 760 : race ? 600 : nap ? 520 : 440;
     c.add(panel(this, 0, 0, 620, h));
     let y = -h / 2 + 70;
-    if (sup) {
-      const ribbon = this.pill(0, -h / 2 + 10, 420, 80, C.gold);
+    if (ribbonText) {
+      const ribbon = this.pill(0, -h / 2 + 10, 420, 80, sup ? C.gold : race ? 0xff9f43 : 0x8fa8ff);
       ribbon.setDepth(0);
-      ribbon.add(txt(this, 0, -2, 'СУПЕР-УРОВЕНЬ!', 44, '#ffffff'));
+      ribbon.add(txt(this, 0, -2, ribbonText, 44, '#ffffff'));
       c.add(ribbon);
       y += 40;
     }
@@ -302,9 +403,24 @@ export class GameScene extends Phaser.Scene {
     y += 62;
     c.add(txt(this, 0, y, themeNameForLevel(this.level), 36, '#8a5a32', { stroke: '#fff1cf', strokeW: 2 }));
     y += 74;
-    const goal = `Поймай ${this.cfg.minCatch} ${plural(this.cfg.minCatch, 'мошку', 'мошки', 'мошек')}\nза ${this.cfg.duration} сек`;
-    c.add(txt(this, 0, y, goal, 40, '#2b1d16', { stroke: '#fff1cf', strokeW: 2 }));
-    y += 120;
+    if (race) {
+      c.add(txt(this, 0, y, 'Обогни Клешу', 52, '#c2410c', { stroke: '#fff1cf', strokeW: 3 }));
+      y += 92;
+      c.add(
+        txt(this, 0, y, `Поймай больше мошек,\nчем Клеша, за ${this.cfg.duration} сек.\nНичья — её победа!`, 34, '#2b1d16', {
+          stroke: '#fff1cf',
+          strokeW: 2,
+        }),
+      );
+      y += 120;
+    } else {
+      const goal = `Поймай ${this.cfg.minCatch} ${plural(this.cfg.minCatch, 'мошку', 'мошки', 'мошек')}\nза ${this.cfg.duration} сек`;
+      c.add(txt(this, 0, y, goal, 40, '#2b1d16', { stroke: '#fff1cf', strokeW: 2 }));
+      y += 120;
+    }
+    if (nap) {
+      c.add(txt(this, 0, y - 20, 'Мошки дремлют — лови, пока спят!', 30, '#4a5fc1', { stroke: '#fff1cf', strokeW: 2 }));
+    }
     if (sup) {
       c.add(
         txt(this, 0, y, `и набери ${this.cfg.superThreshold} очков.\nПара летит кучкой —\nтапни ДВАЖДЫ в одну точку!`, 32, '#c2410c', {
@@ -356,7 +472,8 @@ export class GameScene extends Phaser.Scene {
       c.add(ad);
     }
     popIn(this, c);
-    this.frog.say(sup ? 'Двойной пир!' : 'Ква! Я голодная!', 1500);
+    this.frog.say(sup ? 'Двойной пир!' : race ? 'Клеша, не отставай!' : 'Ква! Я голодная!', 1500);
+    if (race) this.time.delayedCall(700, () => this.rival?.say('Ещё посмотрим!', 1300));
     Sound.speak('frog', 3);
   }
 
@@ -386,6 +503,7 @@ export class GameScene extends Phaser.Scene {
     const t = txt(this, 360, 560, 'Ква-старт!', 80, '#ffc93c').setDepth(90);
     popIn(this, t);
     this.tweens.add({ targets: t, alpha: 0, delay: 600, duration: 300, onComplete: () => t.destroy() });
+    if (this.cfg.isNap) this.time.delayedCall(900, () => this.showRuleOnce('nap'));
   }
 
   private startTutorial() {
@@ -423,7 +541,7 @@ export class GameScene extends Phaser.Scene {
     this.tutorialRing.setPosition(fx, ins.y - 2);
   }
 
-  private tutorialTap(ins: Insect, zone: 'eat' | 'lick') {
+  private tutorialTap(ins: Insect, zone: TapZone) {
     if (zone !== this.tutorialStep) {
       const tip = this.tutorialUi[0] as Phaser.GameObjects.Text | undefined;
       if (tip?.active) {
@@ -510,19 +628,28 @@ export class GameScene extends Phaser.Scene {
     Ya.gameplayStop();
     Sound.tempo = 1;
     for (const ins of this.insects) if (ins.active) ins.scare();
-    const out = evaluateLevel(this.cfg, this.score, this.caught);
+    for (const c of this.candies) c.img.destroy();
+    this.candies = [];
+    this.friendsDue = [];
+    const out = evaluateLevel(this.cfg, this.score, this.caught, this.rivalCaught);
     const mult = superMultiplier(this.cfg, this.score);
     const sparks = sparksForLevel({ stars: out.stars, caught: this.caught });
-    const t = txt(this, 360, 560, out.won ? 'Брюшко набито!' : 'Время вышло!', 76, out.won ? '#ffc93c' : '#ff8f9a').setDepth(90);
+    const title = this.cfg.isRace ? (out.won ? 'Квася быстрее!' : 'Клеша успела!') : out.won ? 'Брюшко набито!' : 'Время вышло!';
+    const t = txt(this, 360, 560, title, 76, out.won ? '#ffc93c' : '#ff8f9a').setDepth(90);
     popIn(this, t);
     if (out.won) {
       this.frog.hop();
       this.frog.say(pick(FROG_WIN), 1400);
+      this.rival?.ohMouth(1200);
       Sound.win();
       confetti(this, 36);
     } else {
       this.frog.ohMouth(1200);
       this.frog.say(pick(FROG_FAIL), 1400);
+      if (this.rival) {
+        this.rival.hop();
+        this.rival.say('Моя взяла!', 1300);
+      }
       Sound.fail();
     }
     Sound.speak('frog', 4);
@@ -538,6 +665,8 @@ export class GameScene extends Phaser.Scene {
         minCatch: this.cfg.minCatch,
         reason: out.reason,
         isSuper: this.cfg.isSuper,
+        isRace: this.cfg.isRace,
+        rivalCaught: this.rivalCaught,
         superThreshold: this.cfg.superThreshold,
         superMult: mult,
         sparks,
@@ -550,35 +679,46 @@ export class GameScene extends Phaser.Scene {
 
   // ---------------- spawning ----------------
 
-  private rollKind(allowSpecial: boolean): InsectKind {
-    const r = Math.random();
-    const c = this.cfg;
-    if (allowSpecial && r < c.goldChance) return 'gold';
-    if (allowSpecial && r < c.goldChance + c.fatChance) return 'fat';
-    if (r < c.goldChance + c.fatChance + c.mosquitoChance) return 'mosquito';
-    return 'fly';
-  }
-
   private aliveCount() {
     let n = 0;
     for (const i of this.insects) if (i.active && i.hittable) n++;
     return n;
   }
 
+  private guestOnScreen() {
+    return this.insects.some((i) => i.active && i.guest && i.state !== 'gone');
+  }
+
+  private spawnState(): SpawnState {
+    return {
+      playMs: this.playMs,
+      timeLeft: this.timeLeft,
+      alive: this.aliveCount(),
+      guestDueAt: this.guestDueAt,
+      guestSpawned: this.guestSpawned,
+      guestOnScreen: this.guestOnScreen(),
+    };
+  }
+
+  private entry() {
+    const dir: 1 | -1 = Math.random() < 0.5 ? 1 : -1;
+    return { dir, x: dir > 0 ? -90 : W + 90, speed: Phaser.Math.Between(this.cfg.speedMin, this.cfg.speedMax) };
+  }
+
   private spawn() {
     const c = this.cfg;
-    const dir: 1 | -1 = Math.random() < 0.5 ? 1 : -1;
-    const x = dir > 0 ? -90 : W + 90;
-    const speed = Phaser.Math.Between(c.speedMin, c.speedMax);
+    const { dir, x, speed } = this.entry();
     if (c.isSuper) {
-      const kind = this.rollKind(false);
+      const kind = rollKind(c, Math.random(), false);
       const y = Phaser.Math.Between(INSECT_TOP + 50, INSECT_BOTTOM - 50);
       // Tight cluster: two bodies overlap enough that a double-tap hits the same spot.
       const gapX = 22;
       const gapY = 18;
+      const off = Math.random() < 0.5 ? gapY : -gapY;
       const a = new Insect(this, kind, x, y, dir, speed);
-      const b = new Insect(this, kind, x - dir * gapX, y + (Math.random() < 0.5 ? gapY : -gapY), dir, speed);
+      const b = new Insect(this, kind, x - dir * gapX, y + off, dir, speed);
       b.copyFlight(a);
+      b.baseY = a.baseY + off;
       b.setDepth(31);
       const pid = ++this.pairSeq;
       a.pairId = pid;
@@ -586,11 +726,74 @@ export class GameScene extends Phaser.Scene {
       a.pairPartner = b;
       b.pairPartner = a;
       this.insects.push(a, b);
-    } else {
-      const kind = this.rollKind(true);
-      const y = Phaser.Math.Between(INSECT_TOP + 40, INSECT_BOTTOM - 40);
-      this.insects.push(new Insect(this, kind, x, y, dir, speed));
+      return;
     }
+    const p = pickSpawn(c, this.spawnState(), Math.random);
+    if (p.type === 'guest') {
+      this.spawnGuest(p.guest);
+      return;
+    }
+    if (p.sleepy) {
+      this.spawnSleepy(speed);
+      return;
+    }
+    const y = Phaser.Math.Between(INSECT_TOP + 40, INSECT_BOTTOM - 40);
+    this.insects.push(new Insect(this, p.kind, x, y, dir, speed));
+  }
+
+  private spawnGuest(guest: GuestKind) {
+    this.guestSpawned = true;
+    const { dir, x, speed } = this.entry();
+    const others = this.insects.filter((i) => i.active && i.hittable).map((i) => i.y);
+    const y =
+      guest === 'squeaker'
+        ? quietLane(others, INSECT_TOP + 50, INSECT_BOTTOM - 50)
+        : Phaser.Math.Between(INSECT_TOP + 50, INSECT_BOTTOM - 50);
+    const ins = new Insect(this, guest, x, y, dir, speed);
+    if (guest === 'thief') ins.onEscape = (i) => this.onThiefEscape(i);
+    if (guest === 'caller') Sound.jingle();
+    this.insects.push(ins);
+    this.guestsSeen.push(guest);
+    this.showRuleOnce(guest);
+  }
+
+  private spawnSleepy(speed: number) {
+    const others = this.insects.filter((i) => i.active && i.hittable).map((i) => ({ x: i.x, y: i.y }));
+    const p = quietSpot(others, { left: 110, right: W - 110, top: INSECT_TOP + 50, bottom: INSECT_BOTTOM - 50 }, Math.random);
+    const ins = new Insect(this, 'sleepy', p.x, p.y, Math.random() < 0.5 ? 1 : -1, 0);
+    ins.setPosition(p.x, p.y);
+    ins.sleep(speed);
+    ins.setAlpha(0);
+    this.tweens.add({ targets: ins, alpha: 1, duration: 260 });
+    this.insects.push(ins);
+  }
+
+  private spawnFriend() {
+    const { dir, x } = this.entry();
+    const y = Phaser.Math.Between(INSECT_TOP + 50, INSECT_BOTTOM - 50);
+    this.insects.push(new Insect(this, 'fly', x, y, dir, this.cfg.speedMin * CALLER_FRIEND_SPEED));
+  }
+
+  /** Callers' friends get the next free places under maxAlive. */
+  private tickFriends() {
+    if (!this.friendsDue.length) return;
+    this.friendsDue.sort((a, b) => a - b);
+    while (this.friendsDue.length && this.friendsDue[0] <= this.playMs && this.aliveCount() < this.cfg.maxAlive) {
+      this.friendsDue.shift();
+      this.spawnFriend();
+    }
+  }
+
+  private showRuleOnce(what: Novelty) {
+    if (Save.data.seenRules.includes(what)) return;
+    Save.update((d) => {
+      if (!d.seenRules.includes(what)) d.seenRules.push(what);
+    });
+    const box = this.pill(360, 330, 600, 104, 0xfff1a8).setDepth(88);
+    box.add(txt(this, 0, 0, RULE_LINES[what], 34, '#2b1d16', { stroke: '#fff6dc', strokeW: 2 }));
+    popIn(this, box);
+    Sound.fuse(0);
+    this.tweens.add({ targets: box, alpha: 0, delay: 2600, duration: 300, onComplete: () => box.destroy() });
   }
 
   // ---------------- input ----------------
@@ -601,12 +804,13 @@ export class GameScene extends Phaser.Scene {
     if (this.state !== 'playing' && this.state !== 'tutorial') return;
     const x = pointer.x;
     const y = pointer.y;
+    if (this.state === 'playing' && this.tapCandy(x, y)) return;
     let best: Insect | null = null;
     let bestD = Infinity;
     for (const ins of this.insects) {
       if (!ins.active || !ins.hittable) continue;
       const d = Math.hypot(ins.x - x, ins.y - y);
-      if (d <= ins.spec.hitR * ins.spec.scale && d < bestD) {
+      if (d <= ins.hitR && d < bestD) {
         best = ins;
         bestD = d;
       }
@@ -634,19 +838,138 @@ export class GameScene extends Phaser.Scene {
       this.tutorialTap(best, zone);
       return;
     }
-    this.catchInsect(best, zone);
+    this.touch(best, zone);
+  }
+
+  /** The tongue is stung or the mouth is full: say so instead of striking. */
+  private tongueBusy(): boolean {
+    const numb = this.playMs < this.numbUntil;
+    const chew = this.playMs < this.chewUntil;
+    if (!numb && !chew) return false;
+    if (this.playMs - this.busyHintAt > 700) {
+      this.busyHintAt = this.playMs;
+      this.frog.say(numb ? 'Язык онемел!' : 'Жую-жую…', 600);
+      this.frog.wiggle();
+    }
+    return true;
+  }
+
+  private touch(ins: Insect, zone: TapZone) {
+    const preview = touchInsect(ins.kind, zone, ins.spec.points, 1, ins.lit);
+    if (preview.scatterMs > 0) {
+      this.squeakerPop(ins, preview.scatterMs);
+      return;
+    }
+    if (preview.spook) {
+      this.spookFirefly(ins);
+      return;
+    }
+    if (this.tongueBusy()) return;
+    if (preview.numbMs > 0) {
+      this.waspSting(ins, preview.numbMs);
+      return;
+    }
+    this.catchInsect(ins, zone);
+  }
+
+  private squeakerPop(ins: Insect, quietMs: number) {
+    burst(this, ins.x, ins.y, 'puff', 12, { speed: 260, scale: 1.3, life: 520, depth: 56 });
+    burst(this, ins.x, ins.y, 'puff', 6, { speed: 90, scale: 1.8, life: 420, depth: 56 });
+    sticker(this, Phaser.Math.Clamp(ins.x, 150, W - 150), Math.max(STICKER_MIN_Y, ins.y - 110), 'ПИ-И-И!', { size: 40, life: 700 });
+    Sound.pop();
+    shake(this, 0.005, 140);
+    this.combo = 0;
+    this.spawnQuietUntil = this.playMs + quietMs;
+    for (const other of this.insects) if (other.active) other.scare();
+    this.rivalBrain?.hold(quietMs);
+    this.frog.coverEars(1000);
+    this.frog.say('Ой, мои ушки!', 900);
+    Sound.speak('frog', 2);
+  }
+
+  private spookFirefly(ins: Insect) {
+    ins.scare();
+    floatText(this, ins.x, ins.y - 60, 'В темноте не видно!', '#c8d0ff', 32);
+    Sound.poke();
+  }
+
+  private waspSting(ins: Insect, numbMs: number) {
+    this.combo = 0;
+    this.numbUntil = this.playMs + TONGUE_TRIP_MS + numbMs;
+    Sound.tongue();
+    this.frog.strike(ins.x, ins.y, {
+      onHit: () => {
+        Sound.sting();
+        burst(this, ins.x, ins.y, 'spark_white', 6, { speed: 160, scale: 0.4, life: 300 });
+        sticker(this, Phaser.Math.Clamp(ins.x, 150, W - 150), Math.max(STICKER_MIN_Y, ins.y - 110), 'Ж-Ж-Ж!', { size: 34, life: 700 });
+        shake(this, 0.004, 100);
+      },
+      onBack: () => {
+        this.frog.numb(numbMs);
+        this.frog.say('Ай!', 900);
+        Sound.speak('frog', 1);
+      },
+    });
+  }
+
+  private tapCandy(x: number, y: number): boolean {
+    for (let i = this.candies.length - 1; i >= 0; i--) {
+      const c = this.candies[i];
+      if (Math.hypot(c.img.x - x, c.img.y - y) > CANDY_R) continue;
+      this.candies.splice(i, 1);
+      const got = collectCandy({ timeLeft: this.timeLeft, caught: this.caught });
+      this.timeLeft = got.timeLeft;
+      this.caught = got.caught;
+      this.lastSecond = -1;
+      Sound.candy();
+      starBurst(this, c.img.x, c.img.y, 10);
+      this.tweens.add({
+        targets: c.img,
+        x: this.timerPill.x,
+        y: this.timerPill.y,
+        scale: 0.3,
+        duration: 380,
+        ease: 'Cubic.In',
+        onComplete: () => {
+          c.img.destroy();
+          floatText(this, this.timerPill.x - 20, this.timerPill.y + 70, '+4 сек', '#7fd34e', 40);
+          this.tweens.add({ targets: this.timerPill, scale: { from: 1.25, to: 1 }, duration: 260, ease: 'Back.Out' });
+        },
+      });
+      return true;
+    }
+    return false;
+  }
+
+  private dropCandy(ins: Insect) {
+    if (!ins.hasCandy) return;
+    const p = ins.candyWorld();
+    ins.dropCandy();
+    const img = this.add.image(p.x, p.y, 'candy').setScale(0.48).setDepth(40);
+    this.candies.push({ img, x0: p.x, t: 0 });
+  }
+
+  private onThiefEscape(ins: Insect) {
+    if (this.state !== 'playing') return;
+    this.caught = thiefEscape(this.caught);
+    const x = Phaser.Math.Clamp(ins.x, 140, W - 140);
+    floatText(this, x, ins.y, 'Утащила!', '#ff8f9a', 46);
+    Sound.steal();
+    this.frog.say('Эй, верни!', 900);
+    this.refreshHud();
   }
 
   private doubleTongueActive() {
     return this.doubleTongueGranted && this.doubleTongueUntil > 0 && this.playMs < this.doubleTongueUntil;
   }
 
-  private catchInsect(ins: Insect, zone: 'eat' | 'lick', fromBonus = false) {
-    this.caught++;
+  private catchInsect(ins: Insect, zone: TapZone, fromBonus = false) {
     if (this.playMs - this.lastCatchAt <= COMBO_WINDOW_MS) this.combo++;
     else this.combo = 1;
     this.lastCatchAt = this.playMs;
-    let points = Math.round(ins.spec.points * comboMultiplier(this.combo));
+    const res = touchInsect(ins.kind, zone, ins.spec.points, comboMultiplier(this.combo), ins.lit);
+    this.caught += res.caught;
+    let points = res.points;
 
     if (ins.pairId) {
       const partner = ins.pairPartner;
@@ -685,17 +1008,19 @@ export class GameScene extends Phaser.Scene {
 
     this.score += points;
     floatText(this, ins.x, ins.y - 40, `+${points}`, zone === 'eat' ? '#ffffff' : '#ffb3d1');
-    if (this.combo >= 3) {
+    if (res.caught > 1) floatText(this, ins.x, Math.max(STICKER_MIN_Y, ins.y - 110), `×${res.caught}!`, '#ffc93c', 56);
+    else if (this.combo >= 3) {
       floatText(this, ins.x, ins.y - 100, `Комбо ×${this.combo}!`, '#ffc93c', 38);
       Sound.combo(this.combo);
     }
-    if (!this.normaShown && this.caught >= this.cfg.minCatch && this.state === 'playing') {
+    if (!this.cfg.isRace && !this.normaShown && this.caught >= this.cfg.minCatch && this.state === 'playing') {
       this.normaShown = true;
       floatText(this, 360, 330, this.cfg.isSuper ? 'Норма! Теперь — очки!' : 'Норма есть! Жми дальше!', '#7fd34e', 44);
       Sound.fuse(1);
     }
     this.refreshHud();
     Sound.tongue();
+    if (res.chewMs > 0) this.chewUntil = this.playMs + TONGUE_TRIP_MS + res.chewMs;
 
     if (zone === 'eat') {
       this.eaten++;
@@ -707,6 +1032,12 @@ export class GameScene extends Phaser.Scene {
           ins.swallow();
           this.frog.gulp();
           Sound.gulp(this.frog.fat);
+          if (res.chewMs > 0) {
+            this.frog.chew(res.chewMs);
+            this.frog.say('Хрум-хрум-хрум!', 1200);
+            Sound.speak('frog', 3);
+            return;
+          }
           if (this.cfg.isSuper) {
             const tier = fatTier(this.eaten, this.cfg.minCatch);
             if (tier > this.frog.fat) {
@@ -731,10 +1062,21 @@ export class GameScene extends Phaser.Scene {
           Sound.lick();
           Sound.blush();
           hearts(this, ins.x, ins.y - 20);
-          const line = ins.kind === 'mosquito' ? pick(MOSQUITO_BLUSH) : pick(BUG_BLUSH);
+          const mosq = ins.kind === 'mosquito' || ins.kind === 'caller';
+          let line = mosq ? pick(MOSQUITO_BLUSH) : pick(BUG_BLUSH);
+          if (res.dropCandy) line = 'Ой, конфетка!';
+          if (res.friends > 0) line = 'Подружки, сюда!';
+          if (ins.kind === 'wasp') line = 'Ж-ж… стыдно!';
           const side = ins.x < W / 2 ? 1 : -1;
           sticker(this, Phaser.Math.Clamp(ins.x + side * 120, 130, W - 130), ins.y - 150, line, { size: 28, life: 880 });
-          Sound.speak(ins.kind === 'mosquito' ? 'mosquito' : 'fly', 3);
+          Sound.speak(mosq ? 'mosquito' : 'fly', 3);
+          if (res.dropCandy) this.dropCandy(ins);
+          if (res.friends > 0) {
+            Sound.jingle();
+            for (let i = 0; i < res.friends; i++) {
+              this.friendsDue.push(this.playMs + CALLER_FRIEND_DELAYS[Math.min(i, CALLER_FRIEND_DELAYS.length - 1)]);
+            }
+          }
           ins.blush();
           if (Math.random() < 0.3) this.frog.say(pick(FROG_LICK), 700);
         },
@@ -747,11 +1089,50 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  // ---------------- race ----------------
+
+  private tickRival(d: number) {
+    const rival = this.rival;
+    const brain = this.rivalBrain;
+    if (!rival || !brain) return;
+    const m = rival.mouthWorld();
+    const ev = brain.update(d, () => rivalPick(this.insects, m.x, m.y, W - 60));
+    if (!ev) {
+      if (brain.phase === 'look' && brain.target?.active) rival.lookAt(brain.target.x, brain.target.y);
+      return;
+    }
+    const t = ev.target;
+    if (ev.type === 'look') {
+      rival.lookAt(t.x, t.y);
+      return;
+    }
+    if (ev.hit && t.active) {
+      t.grab();
+      Sound.tongue();
+      rival.strike(t.x, t.y, {
+        carry: t,
+        onHit: () => burst(this, t.x, t.y, 'spark', 4, { speed: 120, scale: 0.35, life: 260 }),
+        onBack: () => {
+          t.swallow();
+          rival.gulp();
+          this.rivalCaught++;
+          this.refreshHud();
+          if (Math.random() < 0.25) rival.say(pick(['Ням!', 'Моя!', 'Хе-хе!']), 600);
+        },
+      });
+    } else {
+      rival.strike(t.x, t.y, { onHit: () => {} });
+      rival.say('Эй!', 800);
+      Sound.miss();
+    }
+  }
+
   // ---------------- loop ----------------
 
   update(time: number, delta: number) {
     const d = Math.min(delta, 50);
     this.frog.update(time, d);
+    this.rival?.update(time, d);
     for (let i = this.insects.length - 1; i >= 0; i--) {
       const ins = this.insects[i];
       if (!ins.active) {
@@ -760,17 +1141,22 @@ export class GameScene extends Phaser.Scene {
       }
       ins.update(time, d);
     }
+    this.updateCandies(d);
     this.lookAtNearest();
     if (this.state === 'tutorial') this.updateTutorialPointer();
 
     if (this.state !== 'playing') return;
     this.playMs += d;
     this.tickDoubleTongue();
+    this.tickRival(d);
     this.timeLeft -= d;
-    this.spawnAcc += d;
-    if (this.spawnAcc >= this.cfg.spawnInterval && this.aliveCount() < this.cfg.maxAlive) {
-      this.spawnAcc = 0;
-      this.spawn();
+    if (this.playMs >= this.spawnQuietUntil) {
+      this.tickFriends();
+      this.spawnAcc += d;
+      if (this.spawnAcc >= this.cfg.spawnInterval && this.aliveCount() < this.cfg.maxAlive) {
+        this.spawnAcc = 0;
+        this.spawn();
+      }
     }
     const sec = Math.ceil(this.timeLeft / 1000);
     if (sec !== this.lastSecond) {
@@ -788,6 +1174,20 @@ export class GameScene extends Phaser.Scene {
     if (this.timeLeft <= 0) {
       this.timerText.setText('0:00');
       this.endLevel();
+    }
+  }
+
+  private updateCandies(d: number) {
+    for (let i = this.candies.length - 1; i >= 0; i--) {
+      const c = this.candies[i];
+      c.t += d;
+      c.img.y += (CANDY_FALL * d) / 1000;
+      c.img.x = c.x0 + Math.sin(c.t / 420) * 28;
+      c.img.angle = Math.sin(c.t / 300) * 20;
+      if (c.img.y > H + 50) {
+        c.img.destroy();
+        this.candies.splice(i, 1);
+      }
     }
   }
 
@@ -816,9 +1216,10 @@ export class GameScene extends Phaser.Scene {
   private lookAtNearest() {
     let best: Insect | null = null;
     let bd = Infinity;
+    const fx = this.frog.x;
     for (const ins of this.insects) {
       if (!ins.active || !ins.hittable) continue;
-      const dd = Math.abs(ins.x - FROG_X) + Math.abs(ins.y - 600) * 0.5;
+      const dd = Math.abs(ins.x - fx) + Math.abs(ins.y - 600) * 0.5;
       if (dd < bd) {
         bd = dd;
         best = ins;
@@ -832,19 +1233,47 @@ export class GameScene extends Phaser.Scene {
     if (DEV) this.timeLeft = ms;
   }
 
+  /** Test hook (dev only): bring the level's guest in right now. */
+  debugGuestNow() {
+    if (DEV) this.guestDueAt = 0;
+  }
+
   debugState() {
     return {
       state: this.state,
+      level: this.level,
+      kind: this.cfg.kind,
+      guest: this.cfg.guest,
+      guestSpawned: this.guestSpawned,
+      guestsSeen: this.guestsSeen,
       score: this.score,
       caught: this.caught,
+      rivalCaught: this.rivalCaught,
       eaten: this.eaten,
       licks: this.licks,
       pairs: this.pairClears,
       timeLeft: this.timeLeft,
+      maxAlive: this.cfg.maxAlive,
+      alive: this.aliveCount(),
+      candies: this.candies.map((c) => ({ x: c.img.x, y: c.img.y })),
       fat: this.frog.fat,
       doubleTongue: this.doubleTongueActive(),
       doubleTongueLeft: Math.max(0, this.doubleTongueUntil - this.playMs),
-      insects: this.insects.filter((i) => i.active).map((i) => ({ x: i.x, y: i.y, kind: i.kind, state: i.state, dir: i.dir, pair: i.pairId })),
+      insects: this.insects
+        .filter((i) => i.active)
+        .map((i) => ({
+          id: i.id,
+          x: i.x,
+          y: i.y,
+          kind: i.kind,
+          state: i.state,
+          dir: i.dir,
+          pair: i.pairId,
+          guest: i.guest,
+          lit: i.lit,
+          amp: Math.round(i.flight.amp),
+          period: Math.round(i.flight.periodMs),
+        })),
     };
   }
 }

@@ -143,8 +143,24 @@ interface Strike {
   hit: boolean;
 }
 
+export interface FrogOpts {
+  /** Extra size factor, e.g. two frogs side by side in a race. */
+  scaleMul?: number;
+  /** Eyes follow the player's finger. Off for the rival. */
+  followPointer?: boolean;
+  /** Speech bubble side. */
+  bubbleSide?: 1 | -1;
+}
+
 export class Frog extends Phaser.GameObjects.Container {
   private bodyWrap: Phaser.GameObjects.Container;
+  private readonly baseScale: number;
+  private readonly followPointer: boolean;
+  private readonly bubbleSide: 1 | -1;
+  private paws: Phaser.GameObjects.Graphics;
+  private pawTimer: Phaser.Time.TimerEvent | null = null;
+  private chewTimer: Phaser.Time.TimerEvent | null = null;
+  private numbTimer: Phaser.Time.TimerEvent | null = null;
   private sprite: Phaser.GameObjects.Sprite;
   private sockets: Phaser.GameObjects.Container[] = [];
   private pupils: Phaser.GameObjects.Image[] = [];
@@ -166,9 +182,12 @@ export class Frog extends Phaser.GameObjects.Container {
   private skin = 0;
   fat = 0;
 
-  constructor(scene: Phaser.Scene, x: number, y: number) {
+  constructor(scene: Phaser.Scene, x: number, y: number, opts: FrogOpts = {}) {
     super(scene, x, y);
-    const shadow = scene.add.ellipse(0, 2, 280, 34, 0x000000, 0.18);
+    this.baseScale = FROG_SCALE * (opts.scaleMul ?? 1);
+    this.followPointer = opts.followPointer ?? true;
+    this.bubbleSide = opts.bubbleSide ?? 1;
+    const shadow = scene.add.ellipse(0, 2, 280 * (opts.scaleMul ?? 1), 34, 0x000000, 0.18);
     this.bodyWrap = scene.add.container(0, 0);
     this.hatImg = scene.add.image(0, HAT_FIT[0].y, 'hat0').setOrigin(0.5, 0.96).setScale(HAT_FIT[0].scale).setVisible(false);
     this.artImg = scene.add.image(BELLY[0][0], BELLY[0][1], 'art0').setVisible(false);
@@ -186,8 +205,10 @@ export class Frog extends Phaser.GameObjects.Container {
       this.pupils.push(pupil);
       this.bodyWrap.add(socket);
     }
-    this.bodyWrap.setScale(FROG_SCALE);
-    this.bodyWrap.setY(FEET_INSET * FROG_SCALE);
+    this.paws = scene.add.graphics().setVisible(false);
+    this.bodyWrap.add(this.paws);
+    this.bodyWrap.setScale(this.baseScale);
+    this.bodyWrap.setY(FEET_INSET * this.baseScale);
     this.add([shadow, this.bodyWrap]);
     this.tongue = scene.add.graphics();
     scene.add.existing(this);
@@ -196,8 +217,10 @@ export class Frog extends Phaser.GameObjects.Container {
     this.lookX = x;
     this.lookY = y - 420;
     this.sprite.on('animationcomplete', this.onAnimComplete, this);
-    scene.input.on('pointermove', this.capturePointer, this);
-    scene.input.on('pointerdown', this.capturePointer, this);
+    if (this.followPointer) {
+      scene.input.on('pointermove', this.capturePointer, this);
+      scene.input.on('pointerdown', this.capturePointer, this);
+    }
   }
 
   /** Mouth position in world coordinates. */
@@ -210,8 +233,9 @@ export class Frog extends Phaser.GameObjects.Container {
 
   /** Approximate tappable rectangle of the frog itself (for the "poke" reaction). */
   contains(x: number, y: number) {
-    const w = DISPLAY_W * this.fatScaleX;
-    const h = DISPLAY_H * this.fatScaleY;
+    const k = this.baseScale / FROG_SCALE;
+    const w = DISPLAY_W * k * this.fatScaleX;
+    const h = DISPLAY_H * k * this.fatScaleY;
     return Math.abs(x - this.x) < w / 2 && y < this.y + 10 && y > this.y - h;
   }
 
@@ -345,7 +369,63 @@ export class Frog extends Phaser.GameObjects.Container {
   say(text: string, life = 1000) {
     if (this.speech && this.speech.active) this.speech.destroy();
     const m = this.mouthWorld();
-    this.speech = bubble(this.scene, m.x + 150, m.y - 170, text, { life, tail: 'left' });
+    const right = this.bubbleSide > 0;
+    this.speech = bubble(this.scene, m.x + 150 * this.bubbleSide, m.y - 170, text, { life, tail: right ? 'left' : 'right' });
+  }
+
+  /** Paws pressed to the sides of the head, for a loud squeak. */
+  coverEars(ms = 1000) {
+    const g = this.paws;
+    const col = skinById(this.skin)?.body;
+    const fill = col ? Phaser.Display.Color.GetColor(col[0], col[1], col[2]) : C.frog;
+    g.clear();
+    for (const side of [-1, 1]) {
+      const x = side * 236;
+      const y = -392;
+      g.fillStyle(C.outline, 1);
+      g.fillEllipse(x, y, 104, 128);
+      g.fillStyle(fill, 1);
+      g.fillEllipse(x, y, 84, 108);
+      for (const dy of [-38, 0, 38]) {
+        g.fillStyle(C.outline, 1);
+        g.fillCircle(x - side * 30, y + dy, 20);
+        g.fillStyle(fill, 1);
+        g.fillCircle(x - side * 30, y + dy, 13);
+      }
+    }
+    g.setVisible(true);
+    this.bodyWrap.bringToTop(g);
+    this.ohMouth(ms);
+    this.squash = 1;
+    this.pawTimer?.remove();
+    this.pawTimer = this.scene.time.delayedCall(ms, () => g.setVisible(false));
+  }
+
+  /** Stung tongue: a cold blue flicker while it can't strike. */
+  numb(ms = 1000) {
+    this.ohMouth(Math.min(ms, 600));
+    this.wiggle();
+    this.numbTimer?.remove();
+    let on = false;
+    const flick = this.scene.time.addEvent({
+      delay: 110,
+      repeat: Math.max(0, Math.floor(ms / 110) - 1),
+      callback: () => {
+        on = !on;
+        if (on) this.sprite.setTint(0xa8c8ff);
+        else this.sprite.clearTint();
+        if (flick.getRepeatCount() === 0) this.sprite.clearTint();
+      },
+    });
+    this.numbTimer = flick;
+  }
+
+  /** Busy munching a big catch. */
+  chew(ms = 1500) {
+    this.chewTimer?.remove();
+    const beats = Math.max(1, Math.floor(ms / 300));
+    this.chewTimer = this.scene.time.addEvent({ delay: 300, repeat: beats - 1, callback: () => this.gulp() });
+    this.gulp();
   }
 
   blink() {
@@ -368,7 +448,7 @@ export class Frog extends Phaser.GameObjects.Container {
     const breathe = Math.sin(this.time / 420) * 0.012;
     this.squash = Math.max(0, this.squash - delta / 260);
     const sq = Math.sin(this.squash * Math.PI) * 0.09;
-    this.bodyWrap.setScale(FROG_SCALE * this.fatScaleX * (1 + sq), FROG_SCALE * this.fatScaleY * (1 + breathe - sq * 0.8));
+    this.bodyWrap.setScale(this.baseScale * this.fatScaleX * (1 + sq), this.baseScale * this.fatScaleY * (1 + breathe - sq * 0.8));
     this.bodyWrap.setY(FEET_INSET * this.bodyWrap.scaleY);
 
     const lean = Phaser.Math.Clamp((this.lookX - this.x) / 42, -7, 7);
@@ -478,6 +558,9 @@ export class Frog extends Phaser.GameObjects.Container {
   destroy(fromScene?: boolean) {
     this.tongue?.destroy();
     this.mouthTimer?.remove();
+    this.pawTimer?.remove();
+    this.chewTimer?.remove();
+    this.numbTimer?.remove();
     this.sprite?.off('animationcomplete', this.onAnimComplete, this);
     this.scene.input.off('pointermove', this.capturePointer, this);
     this.scene.input.off('pointerdown', this.capturePointer, this);

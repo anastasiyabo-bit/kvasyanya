@@ -26,6 +26,8 @@ export interface SaveData {
   sfx: boolean;
   tutorialDone: boolean;
   superHintDone: boolean;
+  /** Guest and quiet-hour rules the player has already been shown. */
+  seenRules: string[];
   bestScore: Record<string, number>;
 }
 
@@ -46,6 +48,7 @@ export function defaultSave(): SaveData {
     sfx: true,
     tutorialDone: false,
     superHintDone: false,
+    seenRules: [],
     bestScore: {},
   };
 }
@@ -92,6 +95,7 @@ export function sanitize(raw: unknown): SaveData {
   if (typeof r.sfx === 'boolean') d.sfx = r.sfx;
   if (typeof r.tutorialDone === 'boolean') d.tutorialDone = r.tutorialDone;
   if (typeof r.superHintDone === 'boolean') d.superHintDone = r.superHintDone;
+  if (Array.isArray(r.seenRules)) d.seenRules = [...new Set(r.seenRules.filter((s): s is string => typeof s === 'string'))];
   if (r.bestScore && typeof r.bestScore === 'object') {
     for (const [k, v] of Object.entries(r.bestScore as Record<string, unknown>)) {
       if (isNum(v)) d.bestScore[k] = v;

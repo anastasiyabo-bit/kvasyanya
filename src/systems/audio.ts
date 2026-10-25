@@ -185,6 +185,34 @@ class AudioManager {
     this.noiseBurst(0.2, 0.3, 600, 0.7, 0, 'lowpass');
   }
 
+  /** Cartoon cloud pop of the squeaker. */
+  pop() {
+    if (!this.ok('pop', 120)) return;
+    this.tone('square', 1800, 2600, 0.12, 0.12);
+    this.noiseBurst(0.18, 0.4, 900, 1, 0.03, 'lowpass');
+  }
+
+  sting() {
+    if (!this.ok('sting', 150)) return;
+    this.tone('sawtooth', 220, 180, 0.18, 0.12);
+    this.tone('square', 1400, 600, 0.1, 0.1, 0.02);
+  }
+
+  jingle() {
+    if (!this.ok('jingle', 120)) return;
+    [1568, 2093, 1568, 2349].forEach((f, i) => this.tone('sine', f, f, 0.09, 0.12, i * 0.07));
+  }
+
+  steal() {
+    if (!this.ok('steal', 200)) return;
+    this.tone('triangle', 700, 260, 0.3, 0.2);
+  }
+
+  candy() {
+    if (!this.ok('candy', 80)) return;
+    [988, 1319, 1760].forEach((f, i) => this.tone('triangle', f, f, 0.1, 0.2, i * 0.05));
+  }
+
   spark(i = 0) {
     if (!this.ok('spark', 25)) return;
     const f = 1300 + (i % 8) * 90;

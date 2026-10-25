@@ -196,7 +196,7 @@ export class MenuScene extends Phaser.Scene {
     for (const ins of this.insects) {
       if (!ins.active || !ins.hittable) continue;
       const d = Math.hypot(ins.x - p.x, ins.y - p.y);
-      if (d < ins.spec.hitR && d < bd) {
+      if (d < ins.hitR && d < bd) {
         bd = d;
         best = ins;
       }
@@ -267,7 +267,7 @@ export class MenuScene extends Phaser.Scene {
       this.spawnAcc = 0;
       const dir: 1 | -1 = Math.random() < 0.5 ? 1 : -1;
       const kind = Math.random() < 0.25 ? 'mosquito' : 'fly';
-      this.insects.push(new Insect(this, kind, dir > 0 ? -80 : W + 80, Phaser.Math.Between(560, 720), dir, 110));
+      this.insects.push(new Insect(this, kind, dir > 0 ? -80 : W + 80, Phaser.Math.Between(560, 720), dir, 110, { band: [520, 760] }));
     }
     let target: Insect | null = null;
     for (const ins of this.insects) if (ins.hittable && ins.x > 140 && ins.x < 580) target = ins;

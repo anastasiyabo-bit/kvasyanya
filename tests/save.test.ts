@@ -47,6 +47,12 @@ describe('save', () => {
     expect(s.art).toBe(1);
   });
 
+  it('remembers which rule lines were already shown', () => {
+    expect(defaultSave().seenRules).toEqual([]);
+    expect(sanitize({ seenRules: ['wasp', 3, 'wasp', 'nap'] }).seenRules).toEqual(['wasp', 'nap']);
+    expect(sanitize({ seenRules: 'wasp' }).seenRules).toEqual([]);
+  });
+
   it('merge prefers more progress', () => {
     const a = { ...defaultSave(), level: 3 };
     const b = { ...defaultSave(), level: 5 };
