@@ -1,3 +1,4 @@
+import './ios-phaser';
 import Phaser from 'phaser';
 import '@fontsource/rubik/cyrillic-800.css';
 import '@fontsource/rubik/latin-800.css';
