@@ -1,30 +1,42 @@
 import Phaser from 'phaser';
 import { CHAR_SHEETS } from '../art/chars';
 import { frogIconKey, frogTextureKey, SKIN_NAMES, skinById } from '../art/skins';
-import { addHatOnFrogImage } from '../objects/Frog';
+import { addBeadsOnFrogImage, addHatOnFrogImage } from '../objects/Frog';
 import { HAT_NAMES } from '../art/textures';
-import { sparksLabel } from '../data/phrases';
-import { COSMETIC_COUNT, TIER_NAMES, grantUnlocks, hatsEarned, runCascade, type CascadeEvent, type Inventory } from '../data/rewards';
+import { BEAD_COUNT, BEAD_NAMES, HAT_UNLOCK_COUNT, SKIN_COUNT } from '../data/cosmetics';
+import {
+  BEAD_COST,
+  HAT_COST,
+  TIER_FOR,
+  TIER_NAMES,
+  applyRewards,
+  rewardHeadline,
+  rewardsForLevel,
+  trackLabel,
+  type Inventory,
+  type Owned,
+  type RewardGain,
+  type UnlockDrop,
+} from '../data/rewards';
 import { Sound } from '../systems/audio';
 import { Save } from '../systems/save';
 import { Ya } from '../systems/yandex';
 import { Button, dimmer, panel, popIn, txt } from '../ui/ui';
-import { burst, confetti, starBurst } from '../ui/fx';
+import { confetti, starBurst } from '../ui/fx';
 import type { GameScene, ResultData } from './GameScene';
 
-type CosmeticDrop = { kind: 'hat' | 'skin'; id: number };
-
-const SLOT_Y = 70;
-const SLOT_X = [-225, -75, 75, 225];
-const SLOT_SCALE = 0.95;
+const SLOT_Y = 55;
+const SLOT_X = [-210, 0, 210];
+const SLOT_SCALE = 0.82;
+const SLOT_KEYS = ['tier0', 'tier1', 'tier3'] as const;
 
 export class ResultScene extends Phaser.Scene {
   private d!: ResultData;
   private root!: Phaser.GameObjects.Container;
   private counts: Phaser.GameObjects.Text[] = [];
   private slots: Phaser.GameObjects.Image[] = [];
-  private shown: Inventory = [0, 0, 0, 0];
-  private finalInv: Inventory = [0, 0, 0, 0];
+  private finalInv: Inventory = [0, 0, 0];
+  private finalOwned: Owned = { hats: 0, beads: 0, skins: 0 };
   private cascadeTimers: Phaser.Time.TimerEvent[] = [];
   private cascading = false;
   private buttons: Button[] = [];
@@ -34,7 +46,8 @@ export class ResultScene extends Phaser.Scene {
   private chestFx: Phaser.GameObjects.GameObject[] = [];
   private ceremonyTimers: Phaser.Time.TimerEvent[] = [];
   private ceremonyRunning = false;
-  private epicOpens = 0;
+  private pendingUnlocks: UnlockDrop[] = [];
+  private openedSkin = false;
 
   constructor() {
     super('Result');
@@ -50,10 +63,10 @@ export class ResultScene extends Phaser.Scene {
     this.cascadeTimers = [];
     this.cascading = false;
     this.pendingUnlocks = [];
+    this.openedSkin = false;
     this.chestFx = [];
     this.ceremonyTimers = [];
     this.ceremonyRunning = false;
-    this.epicOpens = 0;
   }
 
   create() {
@@ -98,23 +111,22 @@ export class ResultScene extends Phaser.Scene {
     if (d.isSuper && d.superMult > 1) info += `\nБонус супер-уровня ×${d.superMult}`;
     r.add(txt(this, 0, -175, info, 36, '#2b1d16', { stroke: '#fff1cf', strokeW: 2 }));
 
-    this.sparkText = txt(this, 0, -85, `+${sparksLabel(d.sparks)}`, 44, '#ffc93c');
+    const owned = this.ownedNow();
+    this.buildSlots(Save.data.inventory, owned);
+    const gain = rewardsForLevel({ stars: d.stars, caught: d.caught, isSuper: d.isSuper });
+    const res = this.grant(gain, true);
+    this.sparkText = txt(this, 0, -95, rewardHeadline(gain, res.drops.some((x) => x.kind === 'skin')), 34, '#ffc93c');
     r.add(this.sparkText);
+    this.time.delayedCall(160, () => this.playGain(gain));
 
-    const start = [...Save.data.inventory] as Inventory;
-    this.buildSlots(start);
-    const res = runCascade(start, d.sparks);
-    this.applyReward(res.inv, res.epicsGained, res.epicsOpened, true);
-    this.time.delayedCall(160, () => this.playCascade(res.events, res.inv));
-
-    const zone = this.add.zone(0, SLOT_Y - 40, 640, 260).setInteractive();
+    const zone = this.add.zone(0, SLOT_Y, 640, 280).setInteractive();
     zone.on('pointerdown', () => this.skipCascade());
     r.add(zone);
 
-    if (d.sparks > 0) {
-      const x2 = new Button(this, 0, 300, {
+    if (this.anotherGainMatters(gain)) {
+      const x2 = new Button(this, 0, 318, {
         w: 500,
-        h: 108,
+        h: 100,
         color: 'orange',
         label: '×2 за рекламу',
         icon: 'ico_video',
@@ -124,56 +136,122 @@ export class ResultScene extends Phaser.Scene {
       this.buttons.push(x2);
       r.add(x2);
     }
-    const next = new Button(this, 60, 430, { w: 400, h: 118, label: 'Дальше', icon: 'ico_play', onClick: () => this.next() });
+    const next = new Button(this, 60, 448, { w: 400, h: 112, label: 'Дальше', icon: 'ico_play', onClick: () => this.next() });
     next.pulse();
-    const home = new Button(this, -225, 430, { round: true, color: 'orange', icon: 'ico_home', onClick: () => this.toMenu() });
+    const home = new Button(this, -225, 448, { round: true, color: 'orange', icon: 'ico_home', onClick: () => this.toMenu() });
     this.buttons.push(next, home);
     r.add([next, home]);
   }
 
-  private buildSlots(inv: Inventory) {
-    this.shown = [...inv] as Inventory;
+  private ownedNow(): Owned {
+    return {
+      hats: Save.data.hatsUnlocked,
+      beads: Save.data.beadsUnlocked,
+      skins: Save.data.skinsUnlocked,
+    };
+  }
+
+  private progressLine(i: number, inv: Inventory, owned: Owned): string {
+    if (i === 0) return trackLabel(inv[0], HAT_COST, owned.hats >= HAT_UNLOCK_COUNT);
+    if (i === 1) return trackLabel(inv[1], BEAD_COST, owned.beads >= BEAD_COUNT);
+    return owned.skins >= SKIN_COUNT ? 'все' : `${owned.skins}/${SKIN_COUNT}`;
+  }
+
+  private buildSlots(inv: Inventory, owned: Owned) {
     const g = this.add.graphics();
     g.fillStyle(0xf0d79c, 1);
-    g.fillRoundedRect(-300, SLOT_Y - 85, 600, 210, 30);
+    g.fillRoundedRect(-310, SLOT_Y - 78, 620, 268, 30);
     this.root.add(g);
-    for (let t = 0; t < 4; t++) {
-      const img = this.add.image(SLOT_X[t], SLOT_Y - 15, `tier${t}`).setScale(SLOT_SCALE);
-      const cnt = txt(this, SLOT_X[t], SLOT_Y + 45, String(inv[t]), 40, '#ffffff');
-      const name = txt(this, SLOT_X[t], SLOT_Y + 92, TIER_NAMES[t].replace('Эпический ', 'Эпик-\n'), 22, '#8a5a32', {
-        stroke: '#fff1cf',
-        strokeW: 2,
-      });
-      if (t === 3) name.setY(SLOT_Y + 100);
+    for (let t = 0; t < 3; t++) {
+      const img = this.add.image(SLOT_X[t], SLOT_Y - 28, SLOT_KEYS[t]).setScale(SLOT_SCALE);
+      const name = txt(this, SLOT_X[t], SLOT_Y + 26, TIER_NAMES[t], 22, '#8a5a32', { stroke: '#fff1cf', strokeW: 2 });
+      const cnt = txt(this, SLOT_X[t], SLOT_Y + 64, this.progressLine(t, inv, owned), 36, '#ffffff');
+      const purpose = txt(this, SLOT_X[t], SLOT_Y + 106, TIER_FOR[t], 24, '#2b1d16', { stroke: '#fff1cf', strokeW: 2 });
       this.slots.push(img);
       this.counts.push(cnt);
-      this.root.add([img, cnt, name]);
+      this.root.add([img, name, cnt, purpose]);
     }
-    for (let t = 0; t < 3; t++) {
-      const arrow = txt(this, (SLOT_X[t] + SLOT_X[t + 1]) / 2, SLOT_Y - 15, '›', 50, '#c9a46a', { stroke: '#fff1cf', strokeW: 2 });
-      this.root.add(arrow);
-    }
+    this.root.add(
+      txt(this, 0, SLOT_Y + 162, 'Мошки — искорки. 3 звезды — блестяшка.\nСупер-уровень — сундучек.', 22, '#8a5a32', {
+        stroke: '#fff1cf',
+        strokeW: 2,
+      }),
+    );
   }
 
-  private applyReward(inv: Inventory, epics: number, opened: number, first: boolean) {
-    const d = this.d;
-    const grants = hatsEarned(epics, opened);
+  private grant(gain: RewardGain, advance: boolean) {
+    const res = applyRewards(Save.data.inventory, gain, this.ownedNow());
     Save.update((s) => {
-      if (first) {
-        s.level = Math.max(s.level, d.level + 1);
-        s.bestScore[String(d.level)] = Math.max(s.bestScore[String(d.level)] ?? 0, d.score);
+      if (advance) {
+        s.level = Math.max(s.level, this.d.level + 1);
+        s.bestScore[String(this.d.level)] = Math.max(s.bestScore[String(this.d.level)] ?? 0, this.d.score);
       }
-      s.inventory = [...inv] as Inventory;
-      const g = grantUnlocks(s.hatsUnlocked, COSMETIC_COUNT, grants);
-      s.hatsUnlocked = g.unlocked;
-      if (g.newHats.length) s.hat = g.hat;
-      if (g.newSkins.length) s.skin = g.skin;
-      for (const id of g.newHats) this.pendingUnlocks.push({ kind: 'hat', id });
-      for (const id of g.newSkins) this.pendingUnlocks.push({ kind: 'skin', id });
+      s.inventory = res.inv;
+      s.hatsUnlocked = res.owned.hats;
+      s.beadsUnlocked = res.owned.beads;
+      s.skinsUnlocked = res.owned.skins;
+      for (const drop of res.drops) {
+        if (drop.kind === 'hat') s.hat = drop.id;
+        else if (drop.kind === 'bead') s.bead = drop.id;
+        else s.skin = drop.id;
+        this.pendingUnlocks.push(drop);
+      }
     });
+    if (res.drops.some((d) => d.kind === 'skin')) this.openedSkin = true;
+    this.finalInv = res.inv;
+    this.finalOwned = res.owned;
+    return res;
   }
 
-  private pendingUnlocks: CosmeticDrop[] = [];
+  private anotherGainMatters(gain: RewardGain): boolean {
+    const again = applyRewards(Save.data.inventory, gain, this.ownedNow());
+    return again.drops.length > 0 || again.inv.some((n, i) => n !== Save.data.inventory[i]);
+  }
+
+  private playGain(gain: RewardGain) {
+    this.clearCascadeTimers();
+    this.cascading = true;
+    const jobs: { key: string; slot: number }[] = [];
+    for (let i = 0; i < Math.min(8, gain.sparks); i++) jobs.push({ key: 'spark', slot: 0 });
+    if (gain.glitters > 0) jobs.push({ key: 'tier1', slot: 1 });
+    if (this.pendingUnlocks.some((d) => d.kind === 'skin')) jobs.push({ key: 'tier3', slot: 2 });
+    jobs.forEach((job, i) => this.scheduleCascade(40 + i * 80, () => this.flyIcon(job.key, job.slot, i)));
+    this.scheduleCascade(40 + jobs.length * 80 + 180, () => this.finishCascade());
+  }
+
+  private flyIcon(key: string, slot: number, i: number) {
+    if (!this.scene.isActive()) return;
+    const s = this.add.image(360, 545, key).setScale(0.85).setDepth(5);
+    this.tweens.add({
+      targets: s,
+      x: 360 + SLOT_X[slot] + Phaser.Math.Between(-6, 6),
+      y: 640 + SLOT_Y - 28,
+      scale: 0.4,
+      duration: 260,
+      ease: 'Cubic.In',
+      onComplete: () => s.destroy(),
+    });
+    if (key === 'spark') Sound.spark(i);
+    else Sound.fuse(slot);
+    this.tweens.add({ targets: this.slots[slot], scale: { from: SLOT_SCALE * 1.16, to: SLOT_SCALE }, duration: 140 });
+  }
+
+  private finishCascade() {
+    if (!this.cascading) return;
+    this.cascading = false;
+    this.clearCascadeTimers();
+    for (let t = 0; t < 3; t++) {
+      this.counts[t].setText(this.progressLine(t, this.finalInv, this.finalOwned));
+      this.tweens.killTweensOf(this.slots[t]);
+      this.slots[t].setScale(SLOT_SCALE);
+    }
+    this.playCeremonies();
+  }
+
+  private skipCascade() {
+    if (!this.cascading) return;
+    this.finishCascade();
+  }
 
   private scheduleCascade(ms: number, fn: () => void) {
     const t = this.time.delayedCall(ms, fn);
@@ -186,109 +264,8 @@ export class ResultScene extends Phaser.Scene {
     this.cascadeTimers = [];
   }
 
-  private playCascade(events: CascadeEvent[], finalInv: Inventory) {
-    this.clearCascadeTimers();
-    this.cascading = true;
-    this.finalInv = finalInv;
-    this.epicOpens = events.filter((e) => e.type === 'openEpic').length;
-    const TOTAL = 2000;
-    let cursor = 0;
-    const stamps: { ev: Exclude<CascadeEvent, { type: 'openEpic' }>; t: number }[] = [];
-    for (const ev of events) {
-      if (ev.type === 'openEpic') continue;
-      stamps.push({ ev, t: cursor });
-      if (ev.type === 'add') cursor += 42;
-      else cursor += ev.from === 0 ? 55 : 70;
-    }
-    const scale = cursor > TOTAL ? TOTAL / cursor : 1;
-    let addI = 0;
-    for (const { ev, t } of stamps) {
-      this.scheduleCascade(t * scale, () => {
-        if (!this.scene.isActive()) return;
-        if (ev.type === 'add') {
-          this.flySpark(addI++);
-          this.shown[0]++;
-          this.bump(0);
-        } else this.fuseFx(ev.from);
-      });
-    }
-    this.scheduleCascade(Math.max(TOTAL, cursor * scale) + 30, () => {
-      this.finishCascade();
-    });
-  }
-
-  private finishCascade() {
-    if (!this.cascading) return;
-    this.cascading = false;
-    this.clearCascadeTimers();
-    this.shown = [...this.finalInv] as Inventory;
-    if (this.epicOpens > 0) this.shown[3] += this.epicOpens * 5;
-    for (let t = 0; t < 4; t++) {
-      this.counts[t].setText(String(Math.max(0, this.shown[t])));
-      this.tweens.killTweensOf(this.slots[t]);
-      this.slots[t].setScale(SLOT_SCALE);
-    }
-    this.playEpicCeremonies();
-  }
-
-  private skipCascade() {
-    if (!this.cascading) return;
-    this.finishCascade();
-  }
-
-  private flySpark(i: number) {
-    const s = this.add.image(360, 640 - 85, 'spark').setScale(0.95).setDepth(5);
-    const tx = 360 + SLOT_X[0] + Phaser.Math.Between(-8, 8);
-    const ty = 640 + SLOT_Y - 15;
-    this.tweens.add({
-      targets: s,
-      x: { from: 360 + Phaser.Math.Between(-40, 40), to: tx },
-      y: ty,
-      scale: 0.48,
-      angle: 200,
-      duration: 260,
-      ease: 'Cubic.In',
-      onComplete: () => s.destroy(),
-    });
-    Sound.spark(i);
-  }
-
-  private bump(t: number) {
-    this.counts[t].setText(String(Math.max(0, this.shown[t])));
-    this.tweens.add({ targets: this.slots[t], scale: { from: SLOT_SCALE * 1.2, to: SLOT_SCALE }, duration: 160 });
-  }
-
-  private fuseFx(from: 0 | 1 | 2) {
-    const to = from + 1;
-    this.shown[from] = Math.max(0, this.shown[from] - 5);
-    this.shown[to] += 1;
-    this.bump(from);
-    this.bump(to);
-    for (let k = 0; k < 5; k++) {
-      const m = this.add
-        .image(360 + SLOT_X[from] + (k - 2) * 14, 640 + SLOT_Y - 15 - Math.abs(k - 2) * 10, `tier${from}`)
-        .setScale(0.45)
-        .setDepth(5);
-      this.tweens.add({
-        targets: m,
-        x: 360 + SLOT_X[to],
-        y: 640 + SLOT_Y - 15,
-        duration: 150,
-        delay: k * 8,
-        ease: 'Cubic.In',
-        onComplete: () => m.destroy(),
-      });
-    }
-    this.time.delayedCall(160, () => {
-      burst(this, 360 + SLOT_X[to], 640 + SLOT_Y - 15, 'spark_white', 10, { speed: 200, depth: 6 });
-      Sound.fuse(to);
-    });
-  }
-
-  private playEpicCeremonies() {
+  private playCeremonies() {
     const items = this.pendingUnlocks.splice(0);
-    const opens = this.epicOpens;
-    this.epicOpens = 0;
     if (!items.length) return;
     this.ceremonyRunning = true;
     const run = (i: number) => {
@@ -297,7 +274,7 @@ export class ResultScene extends Phaser.Scene {
         return;
       }
       const after = () => this.showUnlock(items[i], () => run(i + 1));
-      if (i < opens) this.playChestCeremony(items[i], after);
+      if (items[i].kind === 'skin') this.playChestCeremony(after);
       else after();
     };
     run(0);
@@ -311,16 +288,11 @@ export class ResultScene extends Phaser.Scene {
     this.chestFx = [];
   }
 
-  /** Closed chest flies to the screen center, opens, and the prize pops out. */
-  private playChestCeremony(item: CosmeticDrop, onDone: () => void) {
+  /** The chest flies to the middle and opens into the new colour. */
+  private playChestCeremony(onDone: () => void) {
     this.clearChestFx();
-    this.tweens.killTweensOf(this.slots[3]);
-    this.slots[3].setScale(SLOT_SCALE);
-    this.shown[3] = Math.max(0, this.shown[3] - 5);
-    this.counts[3].setText(String(this.shown[3]));
-
-    const fromX = 360 + SLOT_X[3];
-    const fromY = 640 + SLOT_Y - 15;
+    const fromX = 360 + SLOT_X[2];
+    const fromY = 640 + SLOT_Y - 28;
     const cx = 360;
     const cy = 560;
     const veil = this.add.rectangle(360, 640, 720, 1280, 0x1a1030, 0.45).setDepth(24);
@@ -345,56 +317,35 @@ export class ResultScene extends Phaser.Scene {
         popIn(this, hello);
         confetti(this, 42);
         this.cameras.main.flash(220, 255, 240, 200);
-        const prizeAt = this.time.delayedCall(300, () => {
-          if (!this.scene.isActive()) return;
-          const key = item.kind === 'skin' ? frogIconKey(item.id) : `hatshop${item.id}`;
-          const prize = this.add.image(cx, cy - 10, key).setScale(0.08).setDepth(42);
-          this.chestFx.push(prize);
-          this.tweens.add({
-            targets: prize,
-            y: cy - 168,
-            scale: item.kind === 'skin' ? 1.05 : 0.86,
-            angle: { from: -18, to: 12 },
-            duration: 520,
-            ease: 'Back.Out',
-          });
-          burst(this, cx, cy - 40, 'star_red', 10, { speed: 180, scale: 0.18, life: 560, depth: 41, spin: true });
-          Sound.win();
-        });
-        const doneAt = this.time.delayedCall(1700, () => {
+        const doneAt = this.time.delayedCall(900, () => {
           if (!this.scene.isActive()) return;
           this.clearChestFx();
           onDone();
         });
-        this.ceremonyTimers.push(prizeAt, doneAt);
+        this.ceremonyTimers.push(doneAt);
       },
     });
   }
 
-  private showUnlock(item: CosmeticDrop, onDone?: () => void) {
+  private showUnlock(item: UnlockDrop, onDone?: () => void) {
     const block = this.add.rectangle(360, 640, 720, 1280, 0x1a1030, 0.45).setInteractive().setDepth(29);
     const c = this.add.container(360, 600).setDepth(30);
     c.add(panel(this, 0, 0, 520, 450));
-    const isSkin = item.kind === 'skin';
-    c.add(txt(this, 0, -155, isSkin ? 'Новый окрас!' : 'Новая шапочка!', 50, '#ffffff'));
-    const h = this.add.image(0, -40, isSkin ? frogIconKey(item.id) : `hatshop${item.id}`).setScale(isSkin ? 0.9 : 0.72);
+    const title = item.kind === 'skin' ? 'Новый окрас!' : item.kind === 'bead' ? 'Новые бусы!' : 'Новая шапочка!';
+    c.add(txt(this, 0, -155, title, 50, '#ffffff'));
+    const key = item.kind === 'skin' ? frogIconKey(item.id) : item.kind === 'bead' ? `bead${item.id}` : `hatshop${item.id}`;
+    const scale = item.kind === 'hat' ? 0.72 : 0.9;
+    const h = this.add.image(0, -40, key).setScale(scale);
     this.tweens.add({ targets: h, angle: { from: -8, to: 8 }, duration: 500, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
     c.add(h);
-    const name = isSkin ? SKIN_NAMES[item.id] : HAT_NAMES[item.id];
-    c.add(txt(this, 0, 55, name, 40, '#8a5a32', { stroke: '#fff1cf', strokeW: 2 }));
+    const name = item.kind === 'skin' ? SKIN_NAMES[item.id] : item.kind === 'bead' ? BEAD_NAMES[item.id] : HAT_NAMES[item.id];
+    c.add(txt(this, 0, 70, name, 40, '#8a5a32', { stroke: '#fff1cf', strokeW: 2 }));
     const close = () => {
       block.destroy();
       c.destroy();
       onDone?.();
     };
-    const ok = new Button(this, 0, 140, {
-      w: 300,
-      h: 96,
-      label: 'Ура!',
-      size: 44,
-      onClick: close,
-    });
-    c.add(ok);
+    c.add(new Button(this, 0, 155, { w: 300, h: 96, label: 'Ура!', size: 44, onClick: close }));
     popIn(this, c);
     Sound.win();
   }
@@ -414,13 +365,13 @@ export class ResultScene extends Phaser.Scene {
     }
     this.doubled = true;
     btn.setLabel('Получено!');
-    const start = [...Save.data.inventory] as Inventory;
-    const res = runCascade(start, this.d.sparks);
-    this.applyReward(res.inv, res.epicsGained, res.epicsOpened, false);
-    this.sparkText?.setText(`+${sparksLabel(this.d.sparks * 2)}`);
+    const gain = rewardsForLevel({ stars: this.d.stars, caught: this.d.caught, isSuper: this.d.isSuper });
+    this.grant(gain, false);
+    const shown: RewardGain = { sparks: gain.sparks * 2, glitters: gain.glitters * 2, chests: gain.chests * 2 };
+    this.sparkText?.setText(rewardHeadline(shown, this.openedSkin));
     const play = () => {
       if (!this.scene.isActive()) return;
-      this.playCascade(res.events, res.inv);
+      this.playGain(gain);
     };
     const wait = () => {
       if (!this.scene.isActive()) return;
@@ -471,6 +422,7 @@ export class ResultScene extends Phaser.Scene {
     const sad = this.add.image(0, -175, frogTextureKey(Save.data.skin), 4).setOrigin(0.5, 0.55).setScale(0.38);
     r.add(sad);
     addHatOnFrogImage(this, r, sad, Save.data.hat);
+    addBeadsOnFrogImage(this, r, sad, Save.data.bead);
     const fh = CHAR_SHEETS.frog_char.frameHeight;
     const eyes: [number, number][] = [
       [-100.5, -414.5],

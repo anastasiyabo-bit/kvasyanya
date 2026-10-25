@@ -50,9 +50,18 @@ export const FROG_SKINS: readonly FrogSkin[] = [
 export const SKIN_COUNT = FROG_SKINS.length;
 export const SKIN_NAMES = ['Квася', ...FROG_SKINS.map((s) => s.name)] as const;
 
+/** Necklaces. A блестяшка is a bead; three of them string the next necklace. */
+export const BEAD_NAMES = ['Жемчуг', 'Ягодки', 'Звёздочки', 'Сердечки', 'Искорки'] as const;
+export const BEAD_COUNT = BEAD_NAMES.length;
+export const BEAD_STYLES = ['pearl', 'berry', 'star', 'heart', 'spark'] as const;
+export type BeadStyle = (typeof BEAD_STYLES)[number];
+
 export type CosmeticUnlock = { kind: 'hat'; id: number } | { kind: 'skin'; id: number };
 
-/** Every 5th prize is a skin; the rest are hats. Default green Kvasi is free. */
+/**
+ * Old saves unlocked one mixed list (every 5th prize a skin).
+ * Kept only so those prizes stay owned after the split into three tracks.
+ */
 function buildUnlockOrder(): CosmeticUnlock[] {
   const order: CosmeticUnlock[] = [];
   let hat = 0;
@@ -75,33 +84,46 @@ function buildUnlockOrder(): CosmeticUnlock[] {
   return order;
 }
 
-export const UNLOCK_ORDER: readonly CosmeticUnlock[] = buildUnlockOrder();
-export const COSMETIC_COUNT = UNLOCK_ORDER.length;
+const UNLOCK_ORDER: readonly CosmeticUnlock[] = buildUnlockOrder();
 
-export function isHatUnlocked(hatId: number, unlocked: number): boolean {
-  if (hatId < 0) return true;
-  return UNLOCK_ORDER.slice(0, Math.max(0, unlocked)).some((x) => x.kind === 'hat' && x.id === hatId);
+/** How many hats and skins a legacy prize counter had already granted. */
+export function legacyPrizeSplit(prizes: number): { hats: number; skins: number } {
+  let hats = 0;
+  let skins = 0;
+  const n = Math.max(0, Math.min(UNLOCK_ORDER.length, Math.floor(prizes)));
+  for (let i = 0; i < n; i++) {
+    if (UNLOCK_ORDER[i].kind === 'hat') hats += 1;
+    else skins += 1;
+  }
+  return { hats, skins };
 }
 
-export function isSkinUnlocked(skinId: number, unlocked: number): boolean {
+export function isHatUnlocked(hatId: number, hatsUnlocked: number): boolean {
+  return hatId >= 0 && hatId < hatsUnlocked && hatId < HAT_UNLOCK_COUNT;
+}
+
+export function isBeadUnlocked(beadId: number, beadsUnlocked: number): boolean {
+  return beadId >= 0 && beadId < beadsUnlocked && beadId < BEAD_COUNT;
+}
+
+/** Skin 0 is the free green Kvasi. Skins 1..skinsUnlocked are the opened colourways. */
+export function isSkinUnlocked(skinId: number, skinsUnlocked: number): boolean {
   if (skinId <= 0) return true;
-  return UNLOCK_ORDER.slice(0, Math.max(0, unlocked)).some((x) => x.kind === 'skin' && x.id === skinId);
+  return skinId <= skinsUnlocked && skinId <= SKIN_COUNT;
 }
 
-export function lastUnlockedHat(unlocked: number): number {
-  let hat = -1;
-  for (const x of UNLOCK_ORDER.slice(0, Math.max(0, unlocked))) {
-    if (x.kind === 'hat') hat = x.id;
-  }
-  return hat;
+export function lastUnlockedHat(hatsUnlocked: number): number {
+  const n = Math.max(0, Math.min(HAT_UNLOCK_COUNT, Math.floor(hatsUnlocked)));
+  return n <= 0 ? -1 : n - 1;
 }
 
-export function lastUnlockedSkin(unlocked: number): number {
-  let skin = 0;
-  for (const x of UNLOCK_ORDER.slice(0, Math.max(0, unlocked))) {
-    if (x.kind === 'skin') skin = x.id;
-  }
-  return skin;
+export function lastUnlockedBead(beadsUnlocked: number): number {
+  const n = Math.max(0, Math.min(BEAD_COUNT, Math.floor(beadsUnlocked)));
+  return n <= 0 ? -1 : n - 1;
+}
+
+export function lastUnlockedSkin(skinsUnlocked: number): number {
+  return Math.max(0, Math.min(SKIN_COUNT, Math.floor(skinsUnlocked)));
 }
 
 export function skinById(id: number): FrogSkin | null {

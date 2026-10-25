@@ -1,108 +1,130 @@
-import { lastUnlockedHat, lastUnlockedSkin, UNLOCK_ORDER } from './cosmetics';
+import { BEAD_COUNT, HAT_UNLOCK_COUNT, legacyPrizeSplit, SKIN_COUNT } from './cosmetics';
+import { sparksLabel } from './phrases';
 
-export { COSMETIC_COUNT } from './cosmetics';
-export const TIER_NAMES = ['Искорка', 'Блестяшка', 'Мешочек', 'Эпический сундук'] as const;
-export const FUSE_COUNT = 5;
+export const TIER_NAMES = ['Искорки', 'Блестяшки', 'Сундучек'] as const;
+export const TIER_FOR = ['шапочки', 'бусы', 'окрасы'] as const;
 
-/** Inventory counts per tier: [sparks, glitters, pouches, epics]. */
-export type Inventory = [number, number, number, number];
+/** Caught flies fill this bar. A full bar opens the next hat. */
+export const HAT_COST = 10;
+/** Three-star clears drop one glitter. A full bar strings the next necklace. */
+export const BEAD_COST = 3;
 
-export type CascadeEvent =
-  | { type: 'add'; tier: 0 }
-  | { type: 'fuse'; from: 0 | 1 | 2 }
-  | { type: 'openEpic' };
+/** Progress still waiting to open the next item: [sparks, glitters, chests]. */
+export type Inventory = [number, number, number];
 
-function drain(inv: Inventory, events: CascadeEvent[]): { epicsGained: number; epicsOpened: number } {
-  let epicsGained = 0;
-  let epicsOpened = 0;
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (let t = 0 as 0 | 1 | 2; t < 3; t = (t + 1) as 0 | 1 | 2) {
-      if (inv[t] >= FUSE_COUNT) {
-        inv[t] -= FUSE_COUNT;
-        inv[t + 1] += 1;
-        events.push({ type: 'fuse', from: t });
-        if (t === 2) epicsGained += 1;
-        changed = true;
-      }
-    }
-    while (inv[3] >= FUSE_COUNT) {
-      inv[3] -= FUSE_COUNT;
-      events.push({ type: 'openEpic' });
-      epicsOpened += 1;
-      changed = true;
-    }
-  }
-  return { epicsGained, epicsOpened };
+export interface RewardGain {
+  sparks: number;
+  glitters: number;
+  chests: number;
 }
 
-/** Adds sparks one by one, fusing 5 of a tier into 1 of the next. 5 epic chests open (counter resets) and count toward a hat. */
-export function runCascade(
-  start: Inventory,
-  sparks: number,
-): { inv: Inventory; events: CascadeEvent[]; epicsGained: number; epicsOpened: number } {
-  const inv: Inventory = [...start] as Inventory;
-  const events: CascadeEvent[] = [];
-  let { epicsGained, epicsOpened } = drain(inv, events);
-  const n = Math.max(0, Math.floor(sparks));
-  for (let i = 0; i < n; i++) {
-    inv[0] += 1;
-    events.push({ type: 'add', tier: 0 });
-    const d = drain(inv, events);
-    epicsGained += d.epicsGained;
-    epicsOpened += d.epicsOpened;
-  }
-  return { inv, events, epicsGained, epicsOpened };
+export interface Owned {
+  hats: number;
+  beads: number;
+  skins: number;
 }
+
+export type UnlockDrop = { kind: 'hat' | 'bead' | 'skin'; id: number };
 
 export interface RewardInput {
   stars: number;
   caught: number;
+  isSuper: boolean;
 }
 
-/** One spark per caught insect; nothing if the level is failed. */
-export function sparksForLevel(r: RewardInput): number {
-  if (r.stars <= 0) return 0;
-  return Math.max(0, Math.floor(r.caught));
+/**
+ * A win pays sparks for every catch.
+ * Three stars also pay one glitter. A cleared super level pays one chest.
+ */
+export function rewardsForLevel(r: RewardInput): RewardGain {
+  if (r.stars <= 0) return { sparks: 0, glitters: 0, chests: 0 };
+  return {
+    sparks: Math.max(0, Math.floor(r.caught)),
+    glitters: r.stars >= 3 ? 1 : 0,
+    chests: r.isSuper ? 1 : 0,
+  };
 }
 
-/** Hats to unlock this cascade: one per new epic, and at least one per completed set of 5. */
-export function hatsEarned(epicsGained: number, epicsOpened: number): number {
-  return Math.max(0, Math.floor(epicsGained), Math.floor(epicsOpened));
+export function sparksForLevel(r: { stars: number; caught: number }): number {
+  return rewardsForLevel({ stars: r.stars, caught: r.caught, isSuper: false }).sparks;
 }
 
-export function grantUnlocks(
-  unlocked: number,
-  cap: number,
-  grants: number,
-): { unlocked: number; hat: number; skin: number; newHats: number[]; newSkins: number[] } {
-  const newHats: number[] = [];
-  const newSkins: number[] = [];
-  const limit = Math.min(cap, UNLOCK_ORDER.length);
-  let n = Math.max(0, unlocked);
-  let hat = lastUnlockedHat(n);
-  let skin = lastUnlockedSkin(n);
-  for (let i = 0; i < grants && n < limit; i++) {
-    n += 1;
-    const item = UNLOCK_ORDER[n - 1];
-    if (item.kind === 'hat') {
-      hat = item.id;
-      newHats.push(hat);
-    } else {
-      skin = item.id;
-      newSkins.push(skin);
+export function trackLabel(have: number, cost: number, done: boolean): string {
+  return done ? 'все' : `${Math.max(0, have)}/${cost}`;
+}
+
+export function rewardHeadline(g: RewardGain, chestOpens: boolean): string {
+  const bits: string[] = [];
+  if (g.sparks > 0) bits.push(`+${sparksLabel(g.sparks)}`);
+  if (g.glitters === 1) bits.push('+ блестяшка');
+  else if (g.glitters > 1) bits.push(`+ ${g.glitters} блестяшки`);
+  if (chestOpens) bits.push('+ сундучек');
+  return bits.join('   ');
+}
+
+function take(n: number): number {
+  return Math.max(0, Math.floor(n));
+}
+
+/**
+ * Adds a level's payout to the three bars. Nothing converts into another currency.
+ * A finished collection stops accepting that currency.
+ */
+export function applyRewards(
+  start: Inventory,
+  gain: RewardGain,
+  owned: Owned,
+): { inv: Inventory; owned: Owned; drops: UnlockDrop[] } {
+  const next: Owned = {
+    hats: take(owned.hats),
+    beads: take(owned.beads),
+    skins: take(owned.skins),
+  };
+  const drops: UnlockDrop[] = [];
+
+  let sparks = take(start[0]) + take(gain.sparks);
+  if (next.hats >= HAT_UNLOCK_COUNT) sparks = 0;
+  else {
+    while (sparks >= HAT_COST && next.hats < HAT_UNLOCK_COUNT) {
+      sparks -= HAT_COST;
+      drops.push({ kind: 'hat', id: next.hats });
+      next.hats += 1;
     }
+    if (next.hats >= HAT_UNLOCK_COUNT) sparks = 0;
   }
-  return { unlocked: n, hat, skin, newHats, newSkins };
+
+  let glitters = take(start[1]) + take(gain.glitters);
+  if (next.beads >= BEAD_COUNT) glitters = 0;
+  else {
+    while (glitters >= BEAD_COST && next.beads < BEAD_COUNT) {
+      glitters -= BEAD_COST;
+      drops.push({ kind: 'bead', id: next.beads });
+      next.beads += 1;
+    }
+    if (next.beads >= BEAD_COUNT) glitters = 0;
+  }
+
+  let chests = take(start[2]) + take(gain.chests);
+  if (next.skins >= SKIN_COUNT) chests = 0;
+  else {
+    while (chests > 0 && next.skins < SKIN_COUNT) {
+      chests -= 1;
+      next.skins += 1;
+      drops.push({ kind: 'skin', id: next.skins });
+    }
+    if (next.skins >= SKIN_COUNT) chests = 0;
+  }
+
+  return { inv: [sparks, glitters, chests], owned: next, drops };
 }
 
-/** Hats first, then colour skins. `hatCap` is the total cosmetic cap when used from the game. */
-export function grantHats(
-  hatsUnlocked: number,
-  hatCap: number,
-  grants: number,
-): { hatsUnlocked: number; hat: number; newHats: number[] } {
-  const r = grantUnlocks(hatsUnlocked, hatCap, grants);
-  return { hatsUnlocked: r.unlocked, hat: r.hat, newHats: r.newHats };
+/** Old pouch and epic-chest progress becomes glitters and sparks. Already opened prizes stay owned. */
+export function migrateLegacy(
+  inv: [number, number, number, number],
+  prizes: number,
+): { inv: Inventory; owned: Owned; drops: UnlockDrop[] } {
+  const split = legacyPrizeSplit(prizes);
+  const sparks = take(inv[0]) + take(inv[3]) * Math.floor(HAT_COST / 5);
+  const glitters = take(inv[1]) + take(inv[2]);
+  return applyRewards([0, 0, 0], { sparks, glitters, chests: 0 }, { hats: split.hats, beads: 0, skins: split.skins });
 }

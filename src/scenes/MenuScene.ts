@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { FONT, FROG_X, PERCH_Y, TEXT_OUTLINE, W } from '../config';
-import { COSMETIC_COUNT, grantUnlocks, hatsEarned, runCascade } from '../data/rewards';
+import { BEAD_COUNT, HAT_UNLOCK_COUNT, SKIN_COUNT } from '../data/cosmetics';
+import { BEAD_COST, HAT_COST, trackLabel } from '../data/rewards';
 import { ensureBackground } from '../art/backgrounds';
 import { BUG_BLUSH, FROG_EAT, FROG_POKE, pick } from '../data/phrases';
 import { Frog } from '../objects/Frog';
@@ -12,19 +13,6 @@ import { Button, sticker, txt } from '../ui/ui';
 import { burst, hearts } from '../ui/fx';
 
 let readySent = false;
-
-/** 5 epic chests should already have opened a hat; catch up if a previous save got stuck at 5. */
-function redeemEpicSets() {
-  const r = runCascade(Save.data.inventory, 0);
-  if (r.epicsOpened <= 0 && r.epicsGained <= 0) return;
-  Save.update((s) => {
-    s.inventory = r.inv;
-    const g = grantUnlocks(s.hatsUnlocked, COSMETIC_COUNT, hatsEarned(r.epicsGained, r.epicsOpened));
-    s.hatsUnlocked = g.unlocked;
-    if (g.newHats.length) s.hat = g.hat;
-    if (g.newSkins.length) s.skin = g.skin;
-  });
-}
 
 export class MenuScene extends Phaser.Scene {
   private frog!: Frog;
@@ -42,7 +30,6 @@ export class MenuScene extends Phaser.Scene {
   }
 
   create() {
-    redeemEpicSets();
     this.insects = [];
     this.letters = [];
     this.counts = [];
@@ -55,7 +42,7 @@ export class MenuScene extends Phaser.Scene {
     this.buildCollection();
 
     this.frog = new Frog(this, FROG_X, PERCH_Y - 8);
-    this.frog.dress(Save.data.hat, Save.data.skin);
+    this.frog.dress(Save.data.hat, Save.data.skin, Save.data.bead);
     this.time.delayedCall(700, () => {
       this.frog.say('Привет! Я Квася!', 1600);
       Sound.speak('frog', 4);
@@ -134,14 +121,22 @@ export class MenuScene extends Phaser.Scene {
     const inv = Save.data.inventory;
     const g = this.add.graphics();
     g.fillStyle(0x2b1d16, 1);
-    g.fillRoundedRect(95, 395, 530, 92, 46);
+    g.fillRoundedRect(70, 392, 580, 118, 46);
     g.fillStyle(0xfff6dc, 0.95);
-    g.fillRoundedRect(100, 400, 520, 82, 41);
-    for (let t = 0; t < 4; t++) {
-      const x = 160 + t * 130;
-      this.add.image(x, 441, `tier${t}`).setScale(0.55);
-      const c = txt(this, x + 48, 441, String(inv[t]), 34, '#2b1d16', { stroke: '#fff6dc', strokeW: 2 });
+    g.fillRoundedRect(76, 398, 568, 106, 41);
+    const keys = ['tier0', 'tier1', 'tier3'] as const;
+    const captions = ['шапочки', 'бусы', 'окрасы'] as const;
+    const lines = [
+      trackLabel(inv[0], HAT_COST, Save.data.hatsUnlocked >= HAT_UNLOCK_COUNT),
+      trackLabel(inv[1], BEAD_COST, Save.data.beadsUnlocked >= BEAD_COUNT),
+      Save.data.skinsUnlocked >= SKIN_COUNT ? 'все' : `${Save.data.skinsUnlocked}/${SKIN_COUNT}`,
+    ];
+    for (let t = 0; t < 3; t++) {
+      const x = 180 + t * 180;
+      this.add.image(x - 48, 438, keys[t]).setScale(0.46);
+      const c = txt(this, x + 18, 430, lines[t], 32, '#2b1d16', { stroke: '#fff6dc', strokeW: 2 });
       this.counts.push(c);
+      txt(this, x + 8, 468, captions[t], 20, '#8a5a32', { stroke: '#fff6dc', strokeW: 2 });
     }
   }
 
@@ -175,7 +170,7 @@ export class MenuScene extends Phaser.Scene {
 
   releaseOverlay() {
     this.overlayOpen = false;
-    this.frog.dress(Save.data.hat, Save.data.skin);
+    this.frog.dress(Save.data.hat, Save.data.skin, Save.data.bead);
     Sound.setMusic(Save.data.music);
     Sound.setSfx(Save.data.sfx);
   }

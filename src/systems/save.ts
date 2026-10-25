@@ -1,12 +1,26 @@
-import { COSMETIC_COUNT, isHatUnlocked, isSkinUnlocked, lastUnlockedHat, lastUnlockedSkin } from '../data/cosmetics';
-import type { Inventory } from '../data/rewards';
+import {
+  BEAD_COUNT,
+  HAT_UNLOCK_COUNT,
+  isBeadUnlocked,
+  isHatUnlocked,
+  isSkinUnlocked,
+  lastUnlockedBead,
+  lastUnlockedHat,
+  lastUnlockedSkin,
+  SKIN_COUNT,
+} from '../data/cosmetics';
+import { migrateLegacy, type Inventory } from '../data/rewards';
 
 export interface SaveData {
-  version: 1;
+  version: 2;
   level: number;
+  /** Remainder toward the next hat, necklace and skin: [sparks, glitters, chests]. */
   inventory: Inventory;
   hatsUnlocked: number;
+  beadsUnlocked: number;
+  skinsUnlocked: number;
   hat: number;
+  bead: number;
   skin: number;
   music: boolean;
   sfx: boolean;
@@ -19,11 +33,14 @@ const KEY = 'nabey-bryushko-v1';
 
 export function defaultSave(): SaveData {
   return {
-    version: 1,
+    version: 2,
     level: 1,
-    inventory: [0, 0, 0, 0],
+    inventory: [0, 0, 0],
     hatsUnlocked: 0,
+    beadsUnlocked: 0,
+    skinsUnlocked: 0,
     hat: -1,
+    bead: -1,
     skin: 0,
     music: true,
     sfx: true,
@@ -35,19 +52,40 @@ export function defaultSave(): SaveData {
 
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 
+function nums(v: unknown, len: number): number[] | null {
+  if (!Array.isArray(v) || v.length !== len || !v.every((x) => isNum(x) && x >= 0)) return null;
+  return v.map((x) => Math.floor(x as number));
+}
+
 export function sanitize(raw: unknown): SaveData {
   const d = defaultSave();
   if (!raw || typeof raw !== 'object') return d;
   const r = raw as Record<string, unknown>;
   if (isNum(r.level) && r.level >= 1) d.level = Math.floor(r.level);
-  if (Array.isArray(r.inventory) && r.inventory.length === 4 && r.inventory.every((x) => isNum(x) && x >= 0)) {
-    d.inventory = r.inventory.map((x) => Math.floor(x as number)) as Inventory;
+
+  const legacy = nums(r.inventory, 4);
+  const modern = nums(r.inventory, 3);
+  if (legacy) {
+    const prizes = isNum(r.hatsUnlocked) ? Math.floor(r.hatsUnlocked) : 0;
+    const m = migrateLegacy(legacy as [number, number, number, number], prizes);
+    d.inventory = m.inv;
+    d.hatsUnlocked = m.owned.hats;
+    d.beadsUnlocked = m.owned.beads;
+    d.skinsUnlocked = m.owned.skins;
+  } else if (modern) {
+    d.inventory = modern as Inventory;
+    if (isNum(r.hatsUnlocked)) d.hatsUnlocked = Math.max(0, Math.min(HAT_UNLOCK_COUNT, Math.floor(r.hatsUnlocked)));
+    if (isNum(r.beadsUnlocked)) d.beadsUnlocked = Math.max(0, Math.min(BEAD_COUNT, Math.floor(r.beadsUnlocked)));
+    if (isNum(r.skinsUnlocked)) d.skinsUnlocked = Math.max(0, Math.min(SKIN_COUNT, Math.floor(r.skinsUnlocked)));
   }
-  if (isNum(r.hatsUnlocked)) d.hatsUnlocked = Math.max(0, Math.min(COSMETIC_COUNT, Math.floor(r.hatsUnlocked)));
+
   if (isNum(r.hat)) d.hat = Math.floor(r.hat);
   if (d.hat >= 0 && !isHatUnlocked(d.hat, d.hatsUnlocked)) d.hat = lastUnlockedHat(d.hatsUnlocked);
+  if (isNum(r.bead)) d.bead = Math.floor(r.bead);
+  if (d.bead >= 0 && !isBeadUnlocked(d.bead, d.beadsUnlocked)) d.bead = lastUnlockedBead(d.beadsUnlocked);
   if (isNum(r.skin)) d.skin = Math.max(0, Math.floor(r.skin));
-  if (!isSkinUnlocked(d.skin, d.hatsUnlocked)) d.skin = lastUnlockedSkin(d.hatsUnlocked);
+  if (!isSkinUnlocked(d.skin, d.skinsUnlocked)) d.skin = lastUnlockedSkin(d.skinsUnlocked);
+
   if (typeof r.music === 'boolean') d.music = r.music;
   if (typeof r.sfx === 'boolean') d.sfx = r.sfx;
   if (typeof r.tutorialDone === 'boolean') d.tutorialDone = r.tutorialDone;
@@ -62,7 +100,8 @@ export function sanitize(raw: unknown): SaveData {
 
 /** Prefers the save with more progress so a stale cloud copy never wipes local progress (or vice versa). */
 export function mergeSaves(a: SaveData, b: SaveData): SaveData {
-  const progress = (s: SaveData) => s.level * 1000 + s.inventory[3] * 100 + s.inventory[2] * 10 + s.inventory[1];
+  const progress = (s: SaveData) =>
+    s.level * 10000 + s.hatsUnlocked * 100 + s.skinsUnlocked * 30 + s.beadsUnlocked * 10 + s.inventory[0] + s.inventory[1] + s.inventory[2];
   return progress(b) > progress(a) ? b : a;
 }
 

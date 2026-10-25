@@ -1,94 +1,74 @@
 import { describe, expect, it } from 'vitest';
 import { sparksLabel } from '../src/data/phrases';
-import { COSMETIC_COUNT } from '../src/data/cosmetics';
-import { FUSE_COUNT, grantUnlocks, hatsEarned, runCascade, sparksForLevel, type Inventory } from '../src/data/rewards';
+import { BEAD_COUNT, HAT_UNLOCK_COUNT, SKIN_COUNT, legacyPrizeSplit } from '../src/data/cosmetics';
+import {
+  BEAD_COST,
+  HAT_COST,
+  applyRewards,
+  migrateLegacy,
+  rewardHeadline,
+  rewardsForLevel,
+  type Inventory,
+} from '../src/data/rewards';
 
-const value = (inv: Inventory) => inv[0] + inv[1] * 5 + inv[2] * 25 + inv[3] * 125;
+const empty = { hats: 0, beads: 0, skins: 0 };
 
-describe('reward cascade', () => {
-  it('fuses 5 sparks into 1 glitter', () => {
-    const r = runCascade([0, 0, 0, 0], 5);
-    expect(r.inv).toEqual([0, 1, 0, 0]);
-    expect(r.events.filter((e) => e.type === 'fuse')).toHaveLength(1);
+describe('reward tracks', () => {
+  it('pays sparks for a win, a glitter for 3 stars, and a chest on a super level', () => {
+    expect(rewardsForLevel({ stars: 0, caught: 12, isSuper: true })).toEqual({ sparks: 0, glitters: 0, chests: 0 });
+    expect(rewardsForLevel({ stars: 1, caught: 12, isSuper: false })).toEqual({ sparks: 12, glitters: 0, chests: 0 });
+    expect(rewardsForLevel({ stars: 3, caught: 12, isSuper: false })).toEqual({ sparks: 12, glitters: 1, chests: 0 });
+    expect(rewardsForLevel({ stars: 2, caught: 9, isSuper: true })).toEqual({ sparks: 9, glitters: 0, chests: 1 });
   });
 
-  it('chain-fuses all the way to an epic chest', () => {
-    const r = runCascade([4, 4, 4, 0], 1);
-    expect(r.inv).toEqual([0, 0, 0, 1]);
-    expect(r.epicsGained).toBe(1);
-    expect(r.epicsOpened).toBe(0);
-    expect(r.events.map((e) => e.type)).toEqual(['add', 'fuse', 'fuse', 'fuse']);
+  it('opens a hat every 10 sparks and keeps the remainder', () => {
+    const r = applyRewards([8, 0, 0], { sparks: 14, glitters: 0, chests: 0 }, empty);
+    expect(r.owned.hats).toBe(2);
+    expect(r.inv).toEqual([2, 0, 0]);
+    expect(r.drops.map((d) => d.id)).toEqual([0, 1]);
   });
 
-  it('opens a hat set when the 5th epic chest is collected and resets the counter', () => {
-    const r = runCascade([4, 4, 4, 4], 1);
-    expect(r.inv).toEqual([0, 0, 0, 0]);
-    expect(r.epicsGained).toBe(1);
-    expect(r.epicsOpened).toBe(1);
-    expect(hatsEarned(r.epicsGained, r.epicsOpened)).toBe(1);
-    expect(r.events.filter((e) => e.type === 'openEpic')).toHaveLength(1);
+  it('strings a necklace from 3 glitters and never turns sparks into glitters', () => {
+    const r = applyRewards([9, 2, 0], { sparks: 0, glitters: 1, chests: 0 }, empty);
+    expect(r.inv).toEqual([9, 0, 0]);
+    expect(r.owned.beads).toBe(1);
+    expect(r.drops).toEqual([{ kind: 'bead', id: 0 }]);
   });
 
-  it('opens stuck epic chests even with no new sparks', () => {
-    const r = runCascade([0, 0, 0, 5], 0);
-    expect(r.inv).toEqual([0, 0, 0, 0]);
-    expect(r.epicsGained).toBe(0);
-    expect(r.epicsOpened).toBe(1);
-    expect(hatsEarned(r.epicsGained, r.epicsOpened)).toBe(1);
+  it('opens one skin per chest and stops when the colours run out', () => {
+    const first = applyRewards([0, 0, 0], { sparks: 0, glitters: 0, chests: 1 }, empty);
+    expect(first.drops).toEqual([{ kind: 'skin', id: 1 }]);
+    expect(first.owned.skins).toBe(1);
+    const done = applyRewards([0, 0, 0], { sparks: 0, glitters: 0, chests: 5 }, { hats: 0, beads: 0, skins: SKIN_COUNT });
+    expect(done.drops).toEqual([]);
+    expect(done.inv[2]).toBe(0);
   });
 
-  it('never loses value and keeps every tier below the fuse count', () => {
-    for (let s = 0; s < 400; s += 7) {
-      const start: Inventory = [s % 5, (s * 3) % 5, (s * 7) % 5, s % 3];
-      const r = runCascade(start, s);
-      expect(value(r.inv) + r.epicsOpened * 5 * 125).toBe(value(start) + s);
-      for (let t = 0; t < 4; t++) expect(r.inv[t]).toBeLessThan(FUSE_COUNT);
-    }
+  it('drops a finished track instead of banking a useless remainder', () => {
+    const r = applyRewards([0, 0, 0], { sparks: 50, glitters: 20, chests: 0 }, { hats: HAT_UNLOCK_COUNT, beads: BEAD_COUNT, skins: 0 });
+    expect(r.inv).toEqual([0, 0, 0]);
+    expect(r.drops).toEqual([]);
   });
 
   it('does not mutate the starting inventory', () => {
-    const start: Inventory = [3, 2, 1, 0];
-    runCascade(start, 50);
-    expect(start).toEqual([3, 2, 1, 0]);
+    const start: Inventory = [3, 2, 1];
+    applyRewards(start, { sparks: 40, glitters: 3, chests: 1 }, empty);
+    expect(start).toEqual([3, 2, 1]);
   });
 
-  it('handles bad input', () => {
-    expect(runCascade([0, 0, 0, 0], -5).inv).toEqual([0, 0, 0, 0]);
-    expect(runCascade([0, 0, 0, 0], 2.7).inv).toEqual([2, 0, 0, 0]);
+  it('migrates the old pouch and epic chest without dropping owned prizes', () => {
+    expect(legacyPrizeSplit(5)).toEqual({ hats: 4, skins: 1 });
+    const m = migrateLegacy([1, 2, 3, 4], 2);
+    expect(m.owned.hats).toBe(2);
+    expect(m.owned.skins).toBe(0);
+    expect(m.owned.beads).toBe(1);
+    expect(m.inv[0]).toBe(1 + 4 * Math.floor(HAT_COST / 5));
+    expect(m.inv[1]).toBe((2 + 3) % BEAD_COST);
   });
 
-  it('sparks equal caught insects on win, zero on fail', () => {
-    expect(sparksForLevel({ stars: 0, caught: 45 })).toBe(0);
-    expect(sparksForLevel({ stars: 1, caught: 45 })).toBe(45);
-    expect(sparksForLevel({ stars: 3, caught: 12 })).toBe(12);
-  });
-
-  it('unlocks a colour skin as every 5th prize', () => {
-    const first = grantUnlocks(4, COSMETIC_COUNT, 1);
-    expect(first.newHats).toEqual([]);
-    expect(first.newSkins).toEqual([1]);
-    expect(first.skin).toBe(1);
-    expect(first.unlocked).toBe(5);
-
-    const second = grantUnlocks(9, COSMETIC_COUNT, 1);
-    expect(second.newSkins).toEqual([2]);
-
-    const third = grantUnlocks(13, COSMETIC_COUNT, 1);
-    expect(third.newSkins).toEqual([3]);
-
-    const batch = grantUnlocks(0, COSMETIC_COUNT, 5);
-    expect(batch.newHats).toEqual([0, 1, 2, 3]);
-    expect(batch.newSkins).toEqual([1]);
-  });
-
-  it('spark word agrees with the number', () => {
-    expect(sparksLabel(1)).toBe('1 искорка');
-    expect(sparksLabel(2)).toBe('2 искорки');
-    expect(sparksLabel(4)).toBe('4 искорки');
-    expect(sparksLabel(5)).toBe('5 искорок');
+  it('names the payout in one line', () => {
+    expect(rewardHeadline({ sparks: 12, glitters: 1, chests: 1 }, true)).toBe('+12 искорок   + блестяшка   + сундучек');
+    expect(rewardHeadline({ sparks: 4, glitters: 0, chests: 1 }, false)).toBe('+4 искорки');
     expect(sparksLabel(11)).toBe('11 искорок');
-    expect(sparksLabel(21)).toBe('21 искорка');
-    expect(sparksLabel(22)).toBe('22 искорки');
-    expect(sparksLabel(44)).toBe('44 искорки');
   });
 });
