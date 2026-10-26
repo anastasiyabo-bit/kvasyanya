@@ -26,11 +26,11 @@ describe('race with Klesha', () => {
     expect(evaluateLevel(cfg, 0, 2, 1).won).toBe(true);
   });
 
-  it('her pace is a bit under the level quota', () => {
+  it('she aims above the quota, so just keeping up is not enough', () => {
     const cfg = getLevelConfig(16);
     const haul = (cfg.duration * 1000) / rivalPaceMs(cfg);
-    expect(haul).toBeLessThan(cfg.minCatch);
-    expect(haul).toBeGreaterThan(cfg.minCatch * 0.7);
+    expect(haul).toBeGreaterThan(cfg.minCatch);
+    expect(haul).toBeLessThan(cfg.minCatch * 1.5);
   });
 
   it('she looks at the fly nearest to her', () => {
@@ -47,8 +47,8 @@ describe('race with Klesha', () => {
     const brain = new RivalBrain(2000, RIVAL_LOOK_MS, 0);
     const look = brain.update(16, () => fly);
     expect(look).toEqual({ type: 'look', target: fly });
-    expect(RIVAL_LOOK_MS).toBeGreaterThanOrEqual(300);
-    expect(RIVAL_LOOK_MS).toBeLessThanOrEqual(400);
+    expect(RIVAL_LOOK_MS).toBeGreaterThanOrEqual(150);
+    expect(RIVAL_LOOK_MS).toBeLessThanOrEqual(250);
     let ev = null;
     let waited = 0;
     fly.hittable = false; // the player grabbed it during her stare

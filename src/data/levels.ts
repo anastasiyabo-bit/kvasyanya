@@ -124,7 +124,8 @@ export function superMultiplier(cfg: LevelConfig, score: number): number {
 }
 
 export const EAT_POINTS = 100;
-export const LICK_POINTS = 100;
+/** A quarter of a swallow. The catch still counts; touchInsect applies the share. */
+export const LICK_POINTS = 25;
 export const PAIR_BONUS = 150;
 export const COMBO_WINDOW_MS = 1500;
 

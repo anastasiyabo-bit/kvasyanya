@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   CANDY_BONUS_MS,
+  LICK_POINT_SHARE,
   CANDY_MAX_FALL,
   CANDY_TAP_R,
   GLUTTON_CHEW_MS,
@@ -28,7 +29,7 @@ describe('guest rules', () => {
 
   it('licking the candy fly is a normal catch that drops the candy; eating it is a normal catch', () => {
     const lick = touchInsect('candy', 'lick', 100, 1);
-    expect(lick).toMatchObject({ caught: 1, points: 100, dropCandy: true });
+    expect(lick).toMatchObject({ caught: 1, points: 25, dropCandy: true });
     const eat = touchInsect('candy', 'eat', 100, 1);
     expect(eat).toMatchObject({ caught: 1, points: 100, dropCandy: false });
   });
@@ -42,7 +43,7 @@ describe('guest rules', () => {
   });
 
   it('a licked wasp pays ordinary lick points', () => {
-    expect(touchInsect('wasp', 'lick', 100, 1)).toMatchObject({ caught: 1, points: 100, numbMs: 0 });
+    expect(touchInsect('wasp', 'lick', 100, 1)).toMatchObject({ caught: 1, points: 25, numbMs: 0 });
   });
 
   it('the thief never takes the counter below zero', () => {
@@ -117,8 +118,19 @@ describe('guest rules', () => {
     expect(flashes).toBe(5);
   });
 
+  it('a lick pays a quarter of a swallow and still counts as a catch', () => {
+    expect(LICK_POINT_SHARE).toBeLessThanOrEqual(0.3);
+    for (const kind of ['fly', 'gold', 'fat', 'mosquito'] as const) {
+      const base = kind === 'gold' ? 300 : kind === 'fat' ? 200 : kind === 'mosquito' ? 150 : 100;
+      const eat = touchInsect(kind, 'eat', base, 1.5);
+      const lick = touchInsect(kind, 'lick', base, 1.5);
+      expect(lick.caught).toBe(1);
+      expect(lick.points).toBe(Math.round(eat.points * LICK_POINT_SHARE));
+    }
+  });
+
   it('sleepy flies and thieves are caught like ordinary flies', () => {
     expect(touchInsect('sleepy', 'eat', 100, 1)).toMatchObject({ caught: 1, points: 100 });
-    expect(touchInsect('thief', 'lick', 150, 1)).toMatchObject({ caught: 1, points: 150 });
+    expect(touchInsect('thief', 'lick', 150, 1)).toMatchObject({ caught: 1, points: 38 });
   });
 });

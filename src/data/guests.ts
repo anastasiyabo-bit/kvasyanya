@@ -15,6 +15,8 @@ export const SLEEP_MS = 2000;
 export const WAKE_SPEED_MUL = 2.4;
 export const FIREFLY_PERIOD_MS = 1000;
 export const FIREFLY_LIT_MS = 420;
+/** A lick still counts as a catch, but pays this share of a swallow. */
+export const LICK_POINT_SHARE = 0.25;
 
 export interface TouchResult {
   /** Insect counted toward the quota and the caught counter. */
@@ -50,7 +52,8 @@ const NOTHING: TouchResult = {
  * `lit` matters for the firefly only.
  */
 export function touchInsect(kind: InsectKind, zone: TapZone, base: number, mult: number, lit = true): TouchResult {
-  const normal: TouchResult = { ...NOTHING, caught: 1, points: Math.round(base * mult), tongue: true };
+  const share = zone === 'lick' ? LICK_POINT_SHARE : 1;
+  const normal: TouchResult = { ...NOTHING, caught: 1, points: Math.round(base * share * mult), tongue: true };
   switch (kind) {
     case 'wasp':
       if (zone === 'eat') return { ...NOTHING, comboReset: true, tongue: true, numbMs: WASP_NUMB_MS };

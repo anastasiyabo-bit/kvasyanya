@@ -3,11 +3,11 @@
 import { touchInsect, type InsectKind } from './guests';
 import type { LevelConfig } from './levels';
 
-/** She stares this long before the tongue goes. The player can steal the fly meanwhile. */
-export const RIVAL_LOOK_MS = 340;
-/** Her expected haul is a bit under the level quota. */
-export const RIVAL_PACE_SHARE = 0.85;
-export const RIVAL_FIRST_DELAY_MS = 1400;
+/** She stares this long before the tongue goes. Short enough that stealing takes a fast tap. */
+export const RIVAL_LOOK_MS = 200;
+/** She tries to catch more than the quota, so the player has to outrun her. */
+export const RIVAL_PACE_SHARE = 1.25;
+export const RIVAL_FIRST_DELAY_MS = 600;
 
 export interface RivalTarget {
   x: number;
@@ -97,7 +97,7 @@ export class RivalBrain<T extends RivalTarget> {
     const t = this.target!;
     this.phase = 'rest';
     this.target = null;
-    this.wait = Math.max(200, this.paceMs - this.lookMs);
+    this.wait = Math.max(80, this.paceMs - this.lookMs);
     return { type: 'strike', target: t, hit: t.hittable && rivalWants(t) };
   }
 }
